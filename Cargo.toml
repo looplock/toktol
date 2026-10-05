@@ -1,0 +1,91 @@
+# Toktol workspace 根清单。
+# 版本号须与 package.json、src-tauri/tauri.conf.json 一致（scripts/verify-release-version.mjs 校验）；
+# 依赖方向：toktol-core ← toktol-gateway ← src-tauri。
+
+[workspace]
+resolver = "2"
+members = ["crates/toktol-core", "crates/toktol-gateway", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# MSRV 由 std::env::home_dir 的解除弃用版本锚定（Rust 1.87，见 crates/toktol-core/src/paths.rs）。
+# CI 有一条专门的检查线读取本值来验证，改动时不必同步文档。
+rust-version = "1.88"
+authors = ["looplock"]
+license = "MIT"
+repository = "https://github.com/looplock/toktol"
+homepage = "https://github.com/looplock/toktol"
+
+[workspace.dependencies]
+toktol-core = { path = "crates/toktol-core" }
+toktol-gateway = { path = "crates/toktol-gateway" }
+
+# 纪律：依赖只在真被代码用到时才声明。未使用的依赖白付编译时间与供应链面，
+# 与本项目的隐私/本地优先定位冲突。scripts/verify-declared-deps.mjs 负责盯住这点。
+#
+# 尚未引入、届时按需评估（连同版本与特性，不要照抄旧值）：
+#   tracing             —— 结构化日志
+
+# bundled：自带 SQLite C 源码，目标机无需系统 libsqlite3
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+# 删除会话：日志文件移入系统回收站（产品红线，绝不硬删）
+trash = "5"
+
+# 网关访问令牌：随机段生成（哈希校验在网关侧，明文只在签发时经 IPC 回一次）
+rand = "0.9"
+
+# 扫描管线：目录遍历、内容指纹、RFC3339 时间戳解析（统一 UTC 落库）；clock 仅为
+# codebuddy——它的日志时间戳是本地时间且无时区后缀，是唯一需要本地时区换算的来源
+walkdir = "2.5"
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+ruzstd = "0.9"
+
+# 配置页：解析 codex/grok 的 config.toml（MCP 服务器段）；只读不写，序列化特性关掉
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+
+# 转录索引建站线程的降优先级（仅 Windows 用到；成员 crate 的 target 段引用）
+windows-sys = { version = "0.60", features = ["Win32_System_Threading"] }
+
+# 网关（阶段 4）：本地 HTTP 服务 + 上游转发 + 配置热重载 + 流式 usage 抽取
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+axum = "0.8"
+# TLS 用 rustls 而非默认 native-tls：上游固定是公网 API 域名，不需要系统证书库的
+# 平台差异行为；stream 供 SSE 转发
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+arc-swap = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+# protocol-asset：assetProtocol 已启用（会话详情展示图片附件）。tray-icon：系统托盘
+#（设置页"后台与托盘"）。workspace 继承的 features 不会被 tauri-build 自动改写，
+# 必须在这里显式声明，否则构建直接失败。
+tauri = { version = "2.11", features = ["protocol-asset", "tray-icon"] }
+tauri-build = "2.6"
+# 防止多开进程同时写同一个 SQLite 库
+tauri-plugin-single-instance = "2.4"
+tauri-plugin-autostart = "2.5"
+# 会话详情里"打开"图片附件（opener:allow-open-path，能力里限定两个附件目录）
+tauri-plugin-opener = "2.5"
+
+[profile.dev]
+# 省磁盘；代价是断点看不到变量值，需要时临时改回 debug = true
+debug = "line-tables-only"
+
+# 依赖按 O2 编译：扫描热点全在依赖里（serde_json 跳读解析、sha2 指纹），
+# 无优化的 dev 构建对多 GB 的 zcode 日志首扫要慢约 30 倍（实测 ~6 MB/s）。
+# 只作用于依赖，workspace 成员保持无优化，增量编译不受影响。
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+

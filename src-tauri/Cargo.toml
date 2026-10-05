@@ -1,0 +1,45 @@
+[package]
+name = "toktol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Toktol 桌面壳：窗口与命令的薄封装，业务逻辑一律在 toktol-core / toktol-gateway"
+publish = false
+default-run = "toktol"
+
+# lib 与 bin 分开：启动逻辑在 lib.rs，便于集成测试直接调用
+[lib]
+name = "toktol_lib"
+
+[[bin]]
+name = "toktol"
+path = "src/main.rs"
+
+[dependencies]
+# 网关命令（起停/状态/令牌/计量）转调 toktol-gateway
+toktol-core.workspace = true
+toktol-gateway.workspace = true
+
+# models.dev 模型目录的拉取（定价页同步命令）
+reqwest.workspace = true
+
+# 壳偏好 config.json（托盘/低功耗）的读写
+serde.workspace = true
+serde_json.workspace = true
+
+# protocol-asset：asset 协议供会话转录内嵌显示 WorkBuddy 附件图片
+# （scope 限定在 tauri.conf.json 的 assetProtocol.scope）。
+tauri = { workspace = true, features = ["protocol-asset", "tray-icon"] }
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-autostart.workspace = true
+tauri-plugin-opener.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

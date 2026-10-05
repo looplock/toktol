@@ -1,0 +1,214 @@
+/* 看板专用样式。gridstack 自己用绝对定位摆卡片，卡片根上不能再叠 Tailwind 定位类。 */
+
+.tt-card-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 14px 12px;
+  overflow: hidden;
+  border: 1px solid var(--tt-border);
+  border-radius: var(--radius-card);
+  background-color: var(--tt-surface);
+}
+
+/* 方案 A 的视觉提示：四角 L 形角标 + 四边中点刻度。只是提示——真正的热区是
+ * gridstack 的八向透明手柄（见文件底部），光标变化才是"这里能拖"的主反馈。 */
+.tt-rz-corner,
+.tt-rz-edge {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--default-transition-duration, 180ms);
+}
+
+.tt-rz-corner {
+  width: 12px;
+  height: 12px;
+}
+
+.tt-rz-corner.tl {
+  top: 3px;
+  left: 3px;
+  border-top: 2px solid var(--tt-accent);
+  border-left: 2px solid var(--tt-accent);
+  border-top-left-radius: 5px;
+}
+
+.tt-rz-corner.tr {
+  top: 3px;
+  right: 3px;
+  border-top: 2px solid var(--tt-accent);
+  border-right: 2px solid var(--tt-accent);
+  border-top-right-radius: 5px;
+}
+
+.tt-rz-corner.bl {
+  bottom: 3px;
+  left: 3px;
+  border-bottom: 2px solid var(--tt-accent);
+  border-left: 2px solid var(--tt-accent);
+  border-bottom-left-radius: 5px;
+}
+
+.tt-rz-corner.br {
+  bottom: 3px;
+  right: 3px;
+  border-bottom: 2px solid var(--tt-accent);
+  border-right: 2px solid var(--tt-accent);
+  border-bottom-right-radius: 5px;
+}
+
+.tt-rz-edge {
+  background-color: var(--tt-accent);
+  border-radius: 9999px;
+}
+
+.tt-rz-edge.t {
+  top: 0;
+  left: 50%;
+  width: 12px;
+  height: 2px;
+  transform: translateX(-50%);
+}
+
+.tt-rz-edge.b {
+  bottom: 0;
+  left: 50%;
+  width: 12px;
+  height: 2px;
+  transform: translateX(-50%);
+}
+
+.tt-rz-edge.l {
+  left: 0;
+  top: 50%;
+  width: 2px;
+  height: 12px;
+  transform: translateY(-50%);
+}
+
+.tt-rz-edge.r {
+  right: 0;
+  top: 50%;
+  width: 2px;
+  height: 12px;
+  transform: translateY(-50%);
+}
+
+.tt-card:hover :is(.tt-rz-corner, .tt-rz-edge),
+.tt-card:has(:focus-visible) :is(.tt-rz-corner, .tt-rz-edge) {
+  opacity: 1;
+}
+
+.tt-card:hover .tt-rz-edge,
+.tt-card:has(:focus-visible) .tt-rz-edge {
+  opacity: 0.55;
+}
+
+/* 顶部带子常驻留白：手柄出现时不推动正文。 */
+.tt-grip-band {
+  display: flex;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.tt-grip {
+  display: grid;
+  grid-template-columns: repeat(3, 3px);
+  gap: 3px;
+  padding: 5px;
+  border-radius: 6px;
+  color: var(--tt-ink-muted);
+  cursor: grab;
+  opacity: 0;
+  /* 隐形时必须同时关掉命中：否则它会挡住图表自己的 tooltip。 */
+  pointer-events: none;
+  transition: opacity var(--default-transition-duration, 180ms);
+}
+
+.tt-grip i {
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background-color: currentColor;
+}
+
+.tt-card:hover .tt-grip,
+.tt-card:has(:focus-visible) .tt-grip {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tt-card-head {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 8px;
+}
+
+.tt-card-actions {
+  display: flex;
+  margin-left: auto;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--default-transition-duration, 180ms);
+}
+
+.tt-card:hover .tt-card-actions,
+.tt-card:has(:focus-visible) .tt-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 设置面板开着时，指针可能已经移去面板（portal 在 body 下，不在卡片里），
+ * 操作区不能跟着 hover 消失：⚙ 按钮带着 data-open，:has 据此让操作区常亮。 */
+.tt-card-actions:has(.tt-settings-trigger[data-open]) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 页面级抽屉开着时，遮罩压暗了整页，当前这张卡要用描边亮出来，
+ * 标明"正在设置的是它"。outline 不占布局，画在卡片边框内侧。 */
+.tt-card:has(.tt-settings-trigger[data-open]) {
+  outline: 2px solid var(--tt-accent);
+  outline-offset: -2px;
+}
+
+.tt-card-body {
+  flex: 1;
+  min-height: 0;
+  /* 默认裁切：ECharts 画布按容器取整有 1px 级溢出，auto 会把它变成成对的滚动条。
+   * 内容固定、缩小时需要滚的卡片由 DashboardCard 显式加 tt-scroll。 */
+  overflow: hidden;
+}
+
+/* 只开纵向：overflow-x/y 一个为 auto 时另一个的 visible 会被规范算成 auto，
+ * 横向必须显式钉在 hidden，否则滚动条成对出现。 */
+.tt-card-body.tt-scroll {
+  overflow: hidden auto;
+}
+
+.tt-chart {
+  width: 100%;
+  height: 100%;
+}
+
+/* 八向热区（gridstack 手柄）永远透明：光标变化是它们唯一的视觉，
+ * 角上 gridstack 自带的斜箭头图标要去掉，视觉由 L 角标接管。 */
+.tt-card .ui-resizable-handle {
+  opacity: 0;
+}
+
+.tt-card :is(.ui-resizable-ne, .ui-resizable-nw, .ui-resizable-se, .ui-resizable-sw) {
+  background-image: none;
+}
+
+.grid-stack-placeholder > .placeholder-content {
+  border: 1px dashed var(--tt-border);
+  border-radius: var(--radius-card);
+  background-color: var(--tt-surface-muted);
+}

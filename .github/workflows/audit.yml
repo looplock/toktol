@@ -1,0 +1,39 @@
+name: Dependency Audit
+
+# 依赖漏洞告警（RustSec + npm audit）：主分支推送与每周定时各跑一次。
+# 刻意不在 PR 上跑：传递依赖的存量 CVE 是"告警"不是"改动有错"，不该染红每一次提交。
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 每周一 03:23 UTC：存量漏洞只在定时跑里暴露。
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # pnpm 版本不在这里写死：从 package.json 的 packageManager 字段读取，保持单一事实源。
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # RustSec 公告库审计：现装 cargo-audit（--locked 锁定它自己的依赖），
+      # 对 Cargo.lock 里全部 crate 出报告，发现匹配的 RUSTSEC 告警即失败。
+      - name: Rust advisory audit
+        run: cargo install cargo-audit --locked && cargo audit
+
+      # npm 侧只看生产依赖（devDependencies 的漏洞不进产物），只拦高危及以上。
+      - name: npm audit (prod, high+)
+        run: pnpm audit --prod --audit-level high

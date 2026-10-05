@@ -1,0 +1,113 @@
+name: CI
+
+# 检查线：pnpm check 只在 ubuntu 跑一次（lint/类型检查无跨平台差异）；
+# Rust 测试在三个平台都跑——路径处理、回收站、文件监听恰恰是平台相关的。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Check & Test (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # pnpm 版本不在这里写死：从 package.json 的 packageManager 字段读取，保持单一事实源。
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Linux 构建依赖的单一事实源见该文件，发布线同样调用它。
+      - name: Install Linux system dependencies
+        run: bash scripts/install-linux-deps.sh
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pnpm check = verify:deps + verify:constants + verify:theme-tokens + verify:version
+      #              + cargo fmt --check + cargo clippy -D warnings + tsc --noEmit
+      # 两个校验脚本排在命令最前面：几秒钟，在编译开始之前就拦住常量/版本漂移。
+      - name: Quality gate
+        run: pnpm check
+
+      # 光靠 tsc 不够：错误的资源路径、Tailwind 配置问题、只在打包期才生效的 import，
+      # 都要到 vite build 才暴露。留到 release 打 tag 才发现就太晚了。
+      - name: Frontend build
+        run: pnpm build
+
+      - name: Frontend tests
+        run: pnpm test
+
+      # workspace 级别跑，三个 crate 的测试都在这里。
+      - name: Rust tests
+        run: cargo test --workspace
+
+  tests-cross-platform:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+  # MSRV 的唯一事实源是根 Cargo.toml 的 rust-version。
+  # 这里把它读出来再传给 rust-toolchain，而不是在 CI 里再写死一份，
+  # 否则 Cargo.toml 改了这里没跟着改，声明就成了空头支票。
+  msrv:
+    name: Check MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Read MSRV from the workspace manifest
+        id: msrv
+        run: |
+          version="$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ -z "${version}" ]; then
+            echo "错误：未能在根 Cargo.toml 中读到 rust-version" >&2
+            exit 1
+          fi
+          echo "MSRV = ${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install Linux system dependencies
+        run: bash scripts/install-linux-deps.sh
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+
+      # 只验证 MSRV 上能编译；正确性由 stable 上的 checks 负责。
+      - name: Check the workspace compiles on MSRV
+        run: cargo check --workspace --all-targets

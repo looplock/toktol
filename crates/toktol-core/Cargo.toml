@@ -1,0 +1,27 @@
+[package]
+name = "toktol-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Toktol 领域核心：统一用量模型、适配器注册表、增量扫描管线、SQLite 存储层与定价引擎"
+publish = false
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+walkdir.workspace = true
+chrono.workspace = true
+ruzstd.workspace = true
+trash.workspace = true
+# 配置页：解析 codex/grok 的 config.toml（MCP 服务器段）
+toml.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true

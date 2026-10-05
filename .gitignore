@@ -1,0 +1,47 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 构建产物（Cargo.lock / pnpm-lock.yaml 要提交，别加进来）
+dist/
+target/
+src-tauri/gen/schemas/
+
+# 本地临时目录
+/tmp/
+
+# 编辑器与系统
+.zcode/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# AI 代理的本地状态（AGENTS.md 欢迎代理进仓库，工具目录会自己长出来；
+# 若以后要把某个工具的项目级配置入库，再放开对应条目）
+.claude/
+.workbuddy/
+.codex/
+.grok/
+.pi/
+.dsh/
+.opencode/
+
+# 补丁与格式化残留（git apply --reject / rustfmt --backup）
+*.orig
+*.rej
+*.rs.bk
+
+# 日志
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# 本地数据
+*.local
+.env
+.env.*
+.toktol/

@@ -1,0 +1,12 @@
+# pnpm 10+ 起，pnpm 的配置项统一放在本文件（package.json 里的 "pnpm" 字段不再被读取）。
+# 本仓库是单包项目，此文件只为承载配置而存在。
+
+# pnpm 默认阻止依赖的安装脚本（供应链安全策略）。
+# 唯一需要放行的是 esbuild：它靠安装脚本落地平台原生二进制，不放行则 Vite / Vitest 无法启动。
+allowBuilds:
+  esbuild: true
+
+# 平铺式 node_modules（npm 风格，真实目录）。默认的 isolated 模式靠
+# junction 链接顶层依赖，本机曾出现 junction 静默创建失败导致顶层依赖
+# 全部缺失（pnpm 无报错，install 显示成功）；hoisted 不依赖链接，稳定。
+nodeLinker: hoisted

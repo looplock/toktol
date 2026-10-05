@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Toktol 默认能力集：核心默认权限 + 已注册插件的默认权限。后续阶段新增插件/命令时在这里补权限，不做通配符放行。",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "autostart:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$HOME/.workbuddy/blobs/**" },
+        { "path": "$HOME/.workbuddy/clipboard-images/**" },
+        { "path": "$HOME/.zcode/cli/image-cache/**" }
+      ]
+    }
+  ]
+}

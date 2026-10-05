@@ -1,0 +1,32 @@
+# EditorConfig: https://editorconfig.org
+#
+# 职责划分：
+#   - Rust 的格式由 rustfmt 说了算，这里只声明缩进宽度以便编辑器对齐；
+#   - TS / CSS / JSON / YAML / Markdown 没有 Prettier 或 ESLint，
+#     这里是目前唯一的统一约束，请按此提交。
+#
+# 现有代码风格（已核对）：2 空格缩进，无 Tab，全部以 LF 换行且有末尾换行。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Markdown 的行尾双空格是硬换行语法，裁掉会破坏排版
+[*.md]
+trim_trailing_whitespace = false
+
+[*.rs]
+indent_size = 4
+
+# 二进制资产：不套用任何文本规则
+[*.{png,ico,icns,woff2}]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

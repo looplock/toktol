@@ -1,0 +1,78 @@
+name: Release
+
+# 发布线：推 v* tag 触发——先校验版本三处一致 + tag 匹配，再三平台并行构建，汇总 Draft Release。
+# 陷阱：tauri.conf.json 的 bundle.targets 只写了 nsis，各平台实际产物由这里的 --bundles 覆盖。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify-version:
+    name: Verify version sources
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check the three version sources agree with the tag
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            node scripts/verify-release-version.mjs --tag "${GITHUB_REF_NAME}"
+          else
+            node scripts/verify-release-version.mjs
+          fi
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: verify-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bundles: appimage,deb
+          - os: windows-latest
+            bundles: nsis
+          - os: macos-latest
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # pnpm 版本从 package.json 的 packageManager 字段读取。
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: bash scripts/install-linux-deps.sh
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tauri-action 会自己执行 beforeBuildCommand（pnpm build）再打包。
+      - uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Toktol ${{ github.ref_name }}"
+          releaseBody: "See the assets below to download and install Toktol for your platform."
+          releaseDraft: true
+          prerelease: false
+          args: --bundles ${{ matrix.bundles }}

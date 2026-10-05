@@ -1,0 +1,533 @@
+/* Toktol 设计令牌。此处只放定义。
+ * 主题只有明暗一维：切换只换 <html> 的 data-theme，不重新生成 CSS——
+ * 靠 @theme inline 的 var() 引用。 */
+
+@import "tailwindcss";
+
+/* Tailwind 默认让 dark: 跟 prefers-color-scheme 走，那就管不到"用户手动选亮/暗"了。
+ * 改成跟 data-theme：首帧内联脚本与 useThemePreference 都写这个属性。 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+  --font-sans:
+    "Inter Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, "Cascadia Mono", monospace;
+
+  /* 尺度类是布局而非配色，只声明一次——放进任一主题块都会被迫在另一套里重复。 */
+  --radius-control: 8px;
+  --radius-card: 8px;
+  --shadow-raised: 0 4px 12px rgb(0 0 0 / 0.1);
+  /* 浮层专用：比 raised 更高更散，用于悬浮面板这类真正离开页面的层。 */
+  --shadow-overlay: 0 12px 36px rgb(0 0 0 / 0.18), 0 2px 8px rgb(0 0 0 / 0.1);
+  --default-transition-duration: 180ms;
+  --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ------------------------------------------------------------------ */
+/* 亮色：两级分层——画布是灰一档的页面底色，卡片（surface）更白一档，     */
+/* 靠底色差区分，边框只做描边。                                        */
+/* 带上 :root 是为了首帧——内联脚本写 data-theme 之前也得是亮色。        */
+/*                                                                    */
+/* 底色语义表（全项目只认这六种，新增 UI 前先对表，不许造"第四种灰"）：  */
+/*   canvas          页面画布（最外层背景）                             */
+/*   surface         卡片 / 内容容器（Card 默认底）                     */
+/*   surface-subtle  卡片内的静态内嵌容器（工具调用卡、只读值框、        */
+/*                   分段控件轨道）——比 muted 浅、比 surface 深         */
+/*   surface-muted   悬浮 / 激活着色（hover 加深、按下、拖拽中）          */
+/*   surface-raised  浮层与"钥匙帽"式选中钮（弹层、分段选中项）          */
+/*   row-hover       表格 / 列表行悬浮高亮（实色，见下行说明）            */
+/*   选中态（列表当前行、目录当前项）一律 bg-accent/10 + text-accent，   */
+/*   不用灰阶表达。圆角三档：容器 rounded-card、控件 rounded-control、   */
+/*   胶囊/圆钮 rounded-full。                                          */
+/* ------------------------------------------------------------------ */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --tt-canvas: #f8f9fa;
+  --tt-surface: #ffffff;
+  /* 静态内嵌底（只读值框、分段控件轨道）：比 muted 浅、比 surface 深，
+  muted 承担悬浮/激活着色。 */
+  --tt-surface-subtle: #f3f3f4;
+  --tt-surface-muted: #e9ebed;
+  --tt-surface-raised: #ffffff;
+  --tt-border: #e3e5e8;
+  --tt-ink: #191b1f;
+  /* 最强墨色：正文关键数字（时间/会话等）用，比 ink 更黑一档。 */
+  --tt-ink-strong: #0e0f11;
+  /* 比"看得舒服"更深一档：它要出现在 surface-muted 上（徽章、分段控件未选中项），
+   * 按 WCAG AA 算那里是最紧的一处，浅一度就掉到 4.5 以下。 */
+  --tt-ink-muted: #5f6470;
+  /* 行悬浮高亮：ink 3% 叠在 surface 上的不透明结果。必须是实色——固定列悬浮时
+   * 若用半透明色，横向滚动压在它下面的内容会透出来。 */
+  --tt-row-hover: #f4f4f4;
+  --tt-accent: #4f46e5;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #4f46e5;
+  /* 滑块要浅：滚动条是常驻 UI，太深会一直抢视线；浅到"看得到但不吵"。
+   * 滑块本身 border-radius 拉满成胶囊，两端是圆弧。 */
+  --tt-scrollbar: #e1e4e9;
+  /* 箭头是圆角三角，conic/mask 都画不好，直接用内联 SVG（宽 7 高 4 / 宽 4 高 7）。
+   * 颜色烤在 path 里引用不了令牌，所以明暗各存一份；forced-colors 下隐藏（见文末）。 */
+  --tt-scrollbar-arrow-up: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="7" height="4"%3E%3Cpath d="M2.97 .6 L.53 3.4 Q0 4 .8 4 L6.2 4 Q7 4 6.47 3.4 L4.03 .6 Q3.5 0 2.97 .6 Z" fill="%23e1e4e9"/%3E%3C/svg%3E');
+  --tt-scrollbar-arrow-down: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="7" height="4"%3E%3Cpath d="M2.97 3.4 L.53 .6 Q0 0 .8 0 L6.2 0 Q7 0 6.47 .6 L4.03 3.4 Q3.5 4 2.97 3.4 Z" fill="%23e1e4e9"/%3E%3C/svg%3E');
+  --tt-scrollbar-arrow-left: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="4" height="7"%3E%3Cpath d="M.6 2.97 L3.4 .53 Q4 0 4 .8 L4 6.2 Q4 7 3.4 6.47 L.6 4.03 Q0 3.5 .6 2.97 Z" fill="%23e1e4e9"/%3E%3C/svg%3E');
+  --tt-scrollbar-arrow-right: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="4" height="7"%3E%3Cpath d="M3.4 2.97 L.6 .53 Q0 0 0 .8 L0 6.2 Q0 7 .6 6.47 L3.4 4.03 Q4 3.5 3.4 2.97 Z" fill="%23e1e4e9"/%3E%3C/svg%3E');
+  /* 涨跌与状态是两组**不同语义**的色，刻意分成两套令牌，不许互相借用：
+   *   涨跌（--tt-up / --tt-down）：数据语义，红涨绿跌。红色在这里代表"涨"。
+   *   状态（--tt-ok / --tt-danger）：结果语义，绿好红坏。红色在这里代表"出错"。
+   * 借用的话同一个红色会在两个场景表示相反的含义，用户认知打架。 */
+  --tt-up: #d32029;
+  --tt-down: #0f8a4d;
+  --tt-ok: #0f7a45;
+  --tt-danger: #c62828;
+  /* 分类色跳过红（约 358°）与绿（约 152°）两个色相区间，避免被误读成涨跌。
+   * 剩下的色相空间装不下 8 个等距色，5/6/8 号偏近是妥协：分类色始终配图例文字，
+   * 不单独承载语义；超过 8 类时循环取用。 */
+  --tt-chart-1: #3b82f6;
+  --tt-chart-2: #6366f1;
+  --tt-chart-3: #a855f7;
+  --tt-chart-4: #ec4899;
+  --tt-chart-5: #f59e0b;
+  --tt-chart-6: #eab308;
+  --tt-chart-7: #22d3ee;
+  --tt-chart-8: #84cc16;
+  /* Token 四桶专用配色（明细页单元格箭头、tooltip 色点与构成环）。
+   * 冷热分组：暖色=新生成（要花钱），冷色=缓存复用（省钱）——配色跟着
+   * 成本直觉走。刻意不借用 --tt-down（输入以前用绿，跟"跌/费用"撞语义），
+   * 也不占用分类色 chart-*，四桶自成一个语义家族。 */
+  --tt-bucket-in: #ea580c;
+  --tt-bucket-out: #db2777;
+  --tt-bucket-read: #64748b;
+  --tt-bucket-write: #0d9488;
+}
+
+/* ------------------------------------------------------------------ */
+/* 深色：画布近黑，卡片（surface）抬亮一档，与亮色同一套两级分层规则     */
+/* ------------------------------------------------------------------ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* 卡片整体压暗：surface/raised → #171717，画布压到 #0a0a0a 托底拉开层级。
+   * 悬停（muted/row-hover）比卡片亮一档——暗色下加亮反馈更清晰；
+   * 内嵌框（subtle）比卡片更深，维持凹陷感。 */
+  --tt-canvas: #0a0a0a;
+  --tt-surface: #171717;
+  --tt-surface-subtle: #111111;
+  --tt-surface-muted: #222222;
+  --tt-surface-raised: #171717;
+  --tt-border: #2b2b2b;
+  --tt-ink: #e9eaec;
+  --tt-ink-strong: #f7f8f9;
+  --tt-ink-muted: #9ba0a8;
+  --tt-row-hover: #212121;
+  --tt-accent: #7c74ff;
+  --tt-accent-ink: #111111;
+  --tt-ring: #8b83ff;
+  --tt-scrollbar: #4f4f4f;
+  --tt-scrollbar-arrow-up: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="7" height="4"%3E%3Cpath d="M2.97 .6 L.53 3.4 Q0 4 .8 4 L6.2 4 Q7 4 6.47 3.4 L4.03 .6 Q3.5 0 2.97 .6 Z" fill="%234f4f4f"/%3E%3C/svg%3E');
+  --tt-scrollbar-arrow-down: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="7" height="4"%3E%3Cpath d="M2.97 3.4 L.53 .6 Q0 0 .8 0 L6.2 0 Q7 0 6.47 .6 L4.03 3.4 Q3.5 4 2.97 3.4 Z" fill="%234f4f4f"/%3E%3C/svg%3E');
+  --tt-scrollbar-arrow-left: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="4" height="7"%3E%3Cpath d="M.6 2.97 L3.4 .53 Q4 0 4 .8 L4 6.2 Q4 7 3.4 6.47 L.6 4.03 Q0 3.5 .6 2.97 Z" fill="%234f4f4f"/%3E%3C/svg%3E');
+  --tt-scrollbar-arrow-right: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="4" height="7"%3E%3Cpath d="M3.4 2.97 L.6 .53 Q0 0 0 .8 L0 6.2 Q0 7 .6 6.47 L3.4 4.03 Q4 3.5 3.4 2.97 Z" fill="%234f4f4f"/%3E%3C/svg%3E');
+  --tt-up: #f2555e;
+  --tt-down: #35c07f;
+  --tt-ok: #35c07f;
+  --tt-danger: #f2555e;
+  --tt-chart-1: #60a5fa;
+  --tt-chart-2: #818cf8;
+  --tt-chart-3: #c084fc;
+  --tt-chart-4: #f472b6;
+  --tt-chart-5: #fbbf24;
+  --tt-chart-6: #facc15;
+  --tt-chart-7: #67e8f9;
+  --tt-chart-8: #a3e635;
+  --tt-bucket-in: #fb923c;
+  --tt-bucket-out: #f472b6;
+  --tt-bucket-read: #94a3b8;
+  --tt-bucket-write: #2dd4bf;
+}
+
+/* ------------------------------------------------------------------ */
+/* 强调色预设：设置页选定的强调色落到 <html data-accent>，只覆盖        */
+/* accent / accent-ink / ring 三个外观令牌。默认靛蓝不写块——缺         */
+/* data-accent 属性即默认，恢复默认等于删属性。                        */
+/* light 变体必须带 [data-theme="light"] 前缀：裸 [data-accent] 与      */
+/* dark 基底同为 0,1,0 特异性，压不住写在后面的暗色基底。               */
+/* 预设色相刻意避开涨跌的红（~357°）与绿（~151°）家族——强调色出现在     */
+/* 按钮与选中态上，落进涨跌色相会与数据语义打架。唯一例外是 green（用户   */
+/* 拍板要正淡绿，接受与"跌"同色相的语义风险，校验按预设名豁免）。         */
+/* ------------------------------------------------------------------ */
+[data-theme="light"][data-accent="blue"] {
+  --tt-accent: #2563eb;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #2563eb;
+}
+
+[data-theme="dark"][data-accent="blue"] {
+  --tt-accent: #60a5fa;
+  --tt-accent-ink: #111111;
+  --tt-ring: #60a5fa;
+}
+
+[data-theme="light"][data-accent="cyan"] {
+  --tt-accent: #0e7490;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #0e7490;
+}
+
+[data-theme="dark"][data-accent="cyan"] {
+  --tt-accent: #22d3ee;
+  --tt-accent-ink: #111111;
+  --tt-ring: #22d3ee;
+}
+
+[data-theme="light"][data-accent="purple"] {
+  --tt-accent: #7c3aed;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #7c3aed;
+}
+
+[data-theme="dark"][data-accent="purple"] {
+  --tt-accent: #a78bfa;
+  --tt-accent-ink: #111111;
+  --tt-ring: #a78bfa;
+}
+
+[data-theme="light"][data-accent="fuchsia"] {
+  --tt-accent: #a21caf;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #a21caf;
+}
+
+[data-theme="dark"][data-accent="fuchsia"] {
+  --tt-accent: #e879f9;
+  --tt-accent-ink: #111111;
+  --tt-ring: #e879f9;
+}
+
+/* 粉色亮档离涨跌红家族（340°起）只差约 7°：色相值通过校验，且 db2777 是
+ * 品红味的粉、与红涨的猩红肉眼可分；再往红挪就必须换家族了。 */
+[data-theme="light"][data-accent="pink"] {
+  --tt-accent: #db2777;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #db2777;
+}
+
+[data-theme="dark"][data-accent="pink"] {
+  --tt-accent: #f472b6;
+  --tt-accent-ink: #111111;
+  --tt-ring: #f472b6;
+}
+
+/* 石墨：低饱和蓝灰，给不想要彩色界面的用户。色相仍在蓝区，不碰涨跌家族。 */
+[data-theme="light"][data-accent="slate"] {
+  --tt-accent: #475569;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #475569;
+}
+
+[data-theme="dark"][data-accent="slate"] {
+  --tt-accent: #94a3b8;
+  --tt-accent-ink: #111111;
+  --tt-ring: #94a3b8;
+}
+
+[data-theme="light"][data-accent="amber"] {
+  --tt-accent: #b45309;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #b45309;
+}
+
+[data-theme="dark"][data-accent="amber"] {
+  --tt-accent: #fbbf24;
+  --tt-accent-ink: #111111;
+  --tt-ring: #fbbf24;
+}
+
+/* 黄色亮档是唯一用深墨当文字的：ca8a04 的亮度配白字只有 2.9:1，换深墨 6.4:1。 */
+[data-theme="light"][data-accent="yellow"] {
+  --tt-accent: #ca8a04;
+  --tt-accent-ink: #111111;
+  --tt-ring: #ca8a04;
+}
+
+[data-theme="dark"][data-accent="yellow"] {
+  --tt-accent: #facc15;
+  --tt-accent-ink: #111111;
+  --tt-ring: #facc15;
+}
+
+/* 淡绿（green）：用户点名要的正淡绿，落进了跌绿家族——这是拍板接受的
+ * 语义例外，校验脚本按预设名豁免（DOWN_FAMILY_EXCEPTIONS）。色相取 ~163°
+ * 偏青的一档（emerald）：比正绿年轻，离 --tt-down（~150°）也远一档。亮档
+ * emerald-700 配白字 5.5:1 过 AA；暗档 emerald-300 亮而淡，配深墨 12:1。 */
+[data-theme="light"][data-accent="green"] {
+  --tt-accent: #047857;
+  --tt-accent-ink: #ffffff;
+  --tt-ring: #047857;
+}
+
+[data-theme="dark"][data-accent="green"] {
+  --tt-accent: #6ee7b7;
+  --tt-accent-ink: #111111;
+  --tt-ring: #a7f3d0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Windows 高对比模式：浏览器强制覆盖所有自定义色，只能接回系统色关键字。*/
+/* !important 不是可选的：这条规则与 [data-theme="dark"] 特异性相同（都是
+ * 0,1,0），靠源码顺序赢，挪动块的位置就会静默失效。                     */
+/* ------------------------------------------------------------------ */
+@media (forced-colors: active) {
+  :root {
+    --tt-canvas: Canvas !important;
+    --tt-surface: Canvas !important;
+    --tt-surface-muted: Canvas !important;
+    --tt-surface-raised: Canvas !important;
+    --tt-border: CanvasText !important;
+    --tt-ink: CanvasText !important;
+    --tt-ink-strong: CanvasText !important;
+    --tt-ink-muted: CanvasText !important;
+    --tt-row-hover: Canvas !important;
+    --tt-accent: Highlight !important;
+    --tt-accent-ink: HighlightText !important;
+    --tt-ring: Highlight !important;
+    --tt-scrollbar: CanvasText !important;
+    /* 箭头三角的颜色烤在 SVG path 里，强制配色下无法跟随 CanvasText，干脆隐藏。 */
+    --tt-scrollbar-arrow-up: none !important;
+    --tt-scrollbar-arrow-down: none !important;
+    --tt-scrollbar-arrow-left: none !important;
+    --tt-scrollbar-arrow-right: none !important;
+    /* 涨跌色在此模式下无从区分，只能靠箭头符号——双编码在这里是唯一退路。 */
+    --tt-up: CanvasText !important;
+    --tt-down: CanvasText !important;
+    --tt-ok: CanvasText !important;
+    --tt-danger: CanvasText !important;
+    --tt-chart-1: CanvasText !important;
+    --tt-chart-2: CanvasText !important;
+    --tt-chart-3: CanvasText !important;
+    --tt-chart-4: CanvasText !important;
+    --tt-chart-5: CanvasText !important;
+    --tt-chart-6: CanvasText !important;
+    --tt-chart-7: CanvasText !important;
+    --tt-chart-8: CanvasText !important;
+    --tt-bucket-in: CanvasText !important;
+    --tt-bucket-out: CanvasText !important;
+    --tt-bucket-read: CanvasText !important;
+    --tt-bucket-write: CanvasText !important;
+  }
+}
+
+/* 表格行高：与主题无关，故不进上面任何一套。 */
+:root {
+  --tt-row-h: 58px;
+  --tt-row-h-compact: 32px;
+}
+
+/* 强调色预览色板：设置页色板用，固定取亮色档色值（色板本身是"选项"不是
+ * "当前状态"，不该随明暗变）；每个预设一枚，与 data-accent 块一一对应，
+ * 由 verify:theme-tokens 守住两边不漂移。 */
+:root {
+  --tt-accent-preview-indigo: #4f46e5;
+  --tt-accent-preview-blue: #2563eb;
+  --tt-accent-preview-cyan: #0e7490;
+  --tt-accent-preview-purple: #7c3aed;
+  --tt-accent-preview-fuchsia: #a21caf;
+  --tt-accent-preview-pink: #db2777;
+  --tt-accent-preview-slate: #475569;
+  --tt-accent-preview-amber: #b45309;
+  --tt-accent-preview-yellow: #ca8a04;
+  --tt-accent-preview-green: #047857;
+}
+
+/* 把上面的令牌映射成 Tailwind 工具类。
+ * `inline` 是必须的：它让 Tailwind 直接内联 var() 引用，
+ * 而不是把变量值固化进生成的类里，主题切换才会实时生效。 */
+@theme inline {
+  --color-canvas: var(--tt-canvas);
+  --color-surface: var(--tt-surface);
+  --color-surface-muted: var(--tt-surface-muted);
+  --color-surface-subtle: var(--tt-surface-subtle);
+  --color-surface-raised: var(--tt-surface-raised);
+  --color-border: var(--tt-border);
+  --color-ink: var(--tt-ink);
+  --color-ink-strong: var(--tt-ink-strong);
+  --color-ink-muted: var(--tt-ink-muted);
+  --color-row-hover: var(--tt-row-hover);
+  --color-accent: var(--tt-accent);
+  --color-accent-ink: var(--tt-accent-ink);
+  --color-ring: var(--tt-ring);
+  --color-up: var(--tt-up);
+  --color-down: var(--tt-down);
+  --color-ok: var(--tt-ok);
+  --color-danger: var(--tt-danger);
+  --color-chart-1: var(--tt-chart-1);
+  --color-chart-2: var(--tt-chart-2);
+  --color-chart-3: var(--tt-chart-3);
+  --color-chart-4: var(--tt-chart-4);
+  --color-chart-5: var(--tt-chart-5);
+  --color-chart-6: var(--tt-chart-6);
+  --color-chart-7: var(--tt-chart-7);
+  --color-chart-8: var(--tt-chart-8);
+  --color-bucket-in: var(--tt-bucket-in);
+  --color-bucket-out: var(--tt-bucket-out);
+  --color-bucket-read: var(--tt-bucket-read);
+  --color-bucket-write: var(--tt-bucket-write);
+}
+
+/* ------------------------------------------------------------------ */
+/* 基础样式                                                            */
+/* ------------------------------------------------------------------ */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* 桌面应用：文档层面禁滚。html 的 hidden 拿掉文档滚动条，body 的 clip 保证它本身
+ * 也不是滚动容器——滚轮、焦点滚动、scrollIntoView 都动不了应用骨架，
+ * 内容的滚动只属于 main 这类滚动区。骨架被滚出视口就只能是布局错了，不存在"滚上去"。 */
+html {
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  overflow: clip;
+  background-color: var(--tt-canvas);
+  color: var(--tt-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* 桌面应用：默认禁止整页拖动选择文本，需要选择的地方单独开 select-text。 */
+  user-select: none;
+}
+
+/* 焦点环统一走 --tt-ring。Tailwind 与浏览器的默认焦点色与 accent 不是一个色，
+ * 而 TopNav 的 roving tabindex 让焦点与选中会分家——看不见焦点环等于键盘导航白做。
+ * 必须放进 @layer base：本文件里未分层的规则会无条件压过 @layer utilities 里的
+ * Tailwind 工具类（分层优先级高于特殊性），导致个别控件想用 focus-visible:outline-none
+ * 关掉环时关不掉（如筛选栏搜索框）。进了 base 层，工具类就能正常覆盖它。 */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--tt-ring);
+    outline-offset: 2px;
+  }
+}
+
+/* 例外：滚动容器不画焦点环。新版 Chromium 把滚动容器隐式变成可聚焦元素，
+ * shift+滚轮横向滚动这类滚动手势也会触发 :focus-visible，结果就是整块面板
+ * 被紫色环圈住。滚到哪里看哪里，环留给真正的控件（按钮/输入框/tab）。 */
+main:focus-visible,
+[role="tabpanel"]:focus-visible,
+.overflow-auto:focus-visible,
+.overflow-x-auto:focus-visible,
+.overflow-y-auto:focus-visible {
+  outline: none;
+}
+
+/* 滚动条也是主题的一部分：吃 --tt-scrollbar，切主题即时生效，不留在浏览器默认灰上。
+ * 刻意只用 ::-webkit-scrollbar、不写标准属性 scrollbar-width/color：Chromium 里标准属性
+ * 一旦生效会整体禁用 webkit 伪元素样式，而它自绘的 thin 在 Windows 上更宽、还带箭头按钮
+ * ——比我们自己画的难看。代价是 Firefox 退回默认滚动条，可接受：应用跑在 WebView2 里。 */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: var(--tt-scrollbar);
+}
+
+/* 悬停/按下要有高亮反馈，但幅度刻意小（之前的大跳变会让"悬停中的滚动条"
+ * 和别的页面的闲置滚动条看起来像两套样式）：悬停深一 micro 步，按下再深一步。 */
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--tt-scrollbar) 88%, var(--tt-ink));
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in srgb, var(--tt-scrollbar) 75%, var(--tt-ink));
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 四个方向的箭头各占一颗按钮，其余按钮位（Windows 下端部可能出现双按钮）一律不画。
+ * 按钮刻意比三角形高：三角形只画在按钮端部一小条里，其余留空——
+ * 参考系统滚动条，三角与滑块之间的空档让两端读起来是"按钮"而不是滑块的延伸。 */
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+::-webkit-scrollbar-button:vertical:decrement:start,
+::-webkit-scrollbar-button:vertical:increment:end,
+::-webkit-scrollbar-button:horizontal:decrement:start,
+::-webkit-scrollbar-button:horizontal:increment:end {
+  display: block;
+  background-color: transparent;
+  background-repeat: no-repeat;
+}
+
+/* 三角是令牌里的内联 SVG（圆角直接画在 path 里），贴按钮外缘 1.5px，
+ * 11px 高的按钮装 4px 的三角——剩下约 5.5px 就是与滑块之间的空档。 */
+::-webkit-scrollbar-button:vertical:decrement:start {
+  height: 11px;
+  background-image: var(--tt-scrollbar-arrow-up);
+  background-position: 50% 1.5px;
+}
+
+::-webkit-scrollbar-button:vertical:increment:end {
+  height: 11px;
+  background-image: var(--tt-scrollbar-arrow-down);
+  background-position: 50% calc(100% - 1.5px);
+}
+
+::-webkit-scrollbar-button:horizontal:decrement:start {
+  width: 11px;
+  background-image: var(--tt-scrollbar-arrow-left);
+  background-position: 1.5px 50%;
+}
+
+::-webkit-scrollbar-button:horizontal:increment:end {
+  width: 11px;
+  background-image: var(--tt-scrollbar-arrow-right);
+  background-position: calc(100% - 1.5px) 50%;
+}
+
+/* 主从布局切换选中项：内容区轻淡入，强化"点了左边、右边有反应"的因果。 */
+@keyframes tt-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 空壳会话占位：光标步进闪烁——等的是永远不会来的第一条消息。 */
+@keyframes tt-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 动效抑制取 0.01ms 而非 0：置 0 会让依赖 transitionend 的逻辑收不到事件。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

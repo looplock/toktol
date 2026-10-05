@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- 刻意不写 data-theme：亮色就是 :root 的默认值，写了反而像把主题锁死在 light。 -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Toktol</title>
+    <script>
+      // 防闪：必须在首次绘制前同步定好 data-theme，等 React 挂载就晚了一帧。
+      // 这里的键名与 paths.rs 的 LS_KEY_THEME 镜像，由 verify:constants 校验——
+      // 内联脚本读不到 TS 常量，只能靠脚本防止两侧漂移。
+      (function () {
+        var THEME_KEY = "toktol-theme";
+        var mode = "system";
+        try {
+          var raw = localStorage.getItem(THEME_KEY);
+          if (raw === "light" || raw === "dark" || raw === "system") mode = raw;
+        } catch (error) {
+          // 存储不可用时按跟随系统走，不影响首屏。
+        }
+
+        var dark =
+          mode === "system"
+            ? !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
+            : mode === "dark";
+
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+
+        // 强调色同属首帧外观：冷启动闪一帧默认紫和闪白一样扎眼。
+        // 白名单必须与 theme.ts 的 ACCENT_IDS 一致；不认识的值不设属性（= 默认靛蓝）。
+        var ACCENT_KEY = "toktol-accent";
+        var ACCENTS = [
+          "indigo", "blue", "cyan", "slate", "purple", "fuchsia", "pink", "amber", "yellow", "green",
+        ];
+        try {
+          var accent = localStorage.getItem(ACCENT_KEY);
+          if (ACCENTS.includes(accent) && accent !== "indigo") {
+            document.documentElement.dataset.accent = accent;
+          }
+        } catch (error) {
+          // 存储不可用时用默认强调色，不影响首屏。
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

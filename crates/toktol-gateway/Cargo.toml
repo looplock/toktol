@@ -1,0 +1,29 @@
+[package]
+name = "toktol-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Toktol 本地 AI API 网关：反向代理、协议转换与用量计量"
+publish = false
+
+[dependencies]
+# toktol-core 目前只用到 paths（配置路径）与 storage（计量落库），但它同时是
+# verify-declared-deps.mjs 的防反向依赖哨兵，见 src/lib.rs 头注释。
+toktol-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+axum.workspace = true
+reqwest.workspace = true
+arc-swap.workspace = true
+futures-util.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+# 集成测试里轮询计量落库要 sleep
+tokio = { workspace = true, features = ["time"] }
