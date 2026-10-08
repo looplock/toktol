@@ -212,18 +212,15 @@ pub(crate) fn split_tag_spans(text: &str, tags: &[(&str, &str)]) -> (String, Vec
     let mut cleaned = String::with_capacity(text.len());
     let mut spans = Vec::new();
     let mut cursor = 0;
-    loop {
-        let Some((start, _, tail)) = tags
-            .iter()
-            .filter_map(|(head, tail)| {
-                text[cursor..]
-                    .find(head)
-                    .map(|rel| (cursor + rel, *head, *tail))
-            })
-            .min_by_key(|(start, _, _)| *start)
-        else {
-            break;
-        };
+    while let Some((start, _, tail)) = tags
+        .iter()
+        .filter_map(|(head, tail)| {
+            text[cursor..]
+                .find(head)
+                .map(|rel| (cursor + rel, *head, *tail))
+        })
+        .min_by_key(|(start, _, _)| *start)
+    {
         match text[start..].find(tail) {
             Some(close_rel) => {
                 let end = start + close_rel + tail.len();
