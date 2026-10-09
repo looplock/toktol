@@ -7,7 +7,7 @@ vulnerabilities.
 
 ## Supported versions
 
-Toktol is at `0.1.0` (stage 1, engineering skeleton). During 0.x we only
+Toktol is at `0.1.0`. During 0.x we only
 maintain the latest patch release; security fixes ship in new versions, with
 no backports to older ones.
 
