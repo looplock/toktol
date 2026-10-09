@@ -6,7 +6,7 @@
  * 四个分区与导航拆在 gateway/ 子目录（ConsoleSidebar / *Pane）。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { PageShell } from "../components/PageShell";
 import type { Strings } from "../i18n/strings";
 import {
@@ -17,6 +17,7 @@ import {
   type GatewayOverviewPayload,
   type GatewayStatus,
 } from "../lib/api";
+import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { formatCount } from "../lib/format";
 import { ConsoleSidebar, type GatewayPane } from "./gateway/ConsoleSidebar";
 import { EntrancePane } from "./gateway/EntrancePane";
@@ -43,59 +44,38 @@ export function GatewayPage({
 }: GatewayPageProps) {
   const [pane, setPane] = useState<GatewayPane>(initialPane ?? "entrance");
 
-  const [status, setStatus] = useState<GatewayStatus | null>(
-    initialStatus ?? null,
-  );
-  const [statusError, setStatusError] = useState<string | null>(null);
+  // 状态 3 秒轮询（只在页面挂载期间进行）；流量概览按需重拉。启停操作
+  // 的返回值经 mutate 即时落状态（等下一轮轮询会有可感的延迟），操作错
+  // 走 actionError——与加载错分家。
+  const statusQuery = useInvokeQuery({
+    deps: ["gateway-status"],
+    fetch: fetchGatewayStatus,
+    ...(initialStatus === undefined ? {} : { initialData: initialStatus }),
+    pollMs: STATUS_POLL_MS,
+  });
+  const status = statusQuery.data;
+  const statusError = statusQuery.error;
+  const applyStatus = statusQuery.mutate;
+  const loadStatus = statusQuery.reload;
+
+  const overviewQuery = useInvokeQuery({
+    deps: ["gateway-overview"],
+    fetch: fetchGatewayOverview,
+    ...(initialOverview === undefined ? {} : { initialData: initialOverview }),
+  });
+  const overview = overviewQuery.data;
+  const overviewError = overviewQuery.error;
+  const loadOverview = overviewQuery.reload;
+
   const [pending, setPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-
-  const [overview, setOverview] = useState<GatewayOverviewPayload | null>(
-    initialOverview ?? null,
-  );
-  const [overviewError, setOverviewError] = useState<string | null>(null);
-
-  const loadStatus = useCallback(() => {
-    fetchGatewayStatus()
-      .then((next) => {
-        setStatus(next);
-        setStatusError(null);
-      })
-      .catch((err: unknown) => setStatusError(String(err)));
-  }, []);
-
-  const loadOverview = useCallback(() => {
-    fetchGatewayOverview()
-      .then((next) => {
-        setOverview(next);
-        setOverviewError(null);
-      })
-      .catch((err: unknown) => setOverviewError(String(err)));
-  }, []);
-
-  useEffect(() => {
-    loadStatus();
-    loadOverview();
-    const timer = window.setInterval(loadStatus, STATUS_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [loadStatus, loadOverview]);
-
-  const config = status?.config ?? null;
-  const running = status?.running ?? false;
-  const listen =
-    status?.listen ?? (config?.kind === "valid" ? config.listen : null);
-  const enabledUpstreams =
-    config?.kind === "valid"
-      ? config.upstreams.filter((upstream) => upstream.enabled).length
-      : 0;
 
   const toggle = (checked: boolean) => {
     setPending(true);
     setActionError(null);
     (checked ? startGateway() : stopGateway())
       .then((next) => {
-        setStatus(next);
-        setStatusError(null);
+        applyStatus(next);
         if (checked) {
           loadOverview();
         }
@@ -109,6 +89,15 @@ export function GatewayPage({
       )
       .finally(() => setPending(false));
   };
+
+  const config = status?.config ?? null;
+  const running = status?.running ?? false;
+  const listen =
+    status?.listen ?? (config?.kind === "valid" ? config.listen : null);
+  const enabledUpstreams =
+    config?.kind === "valid"
+      ? config.upstreams.filter((upstream) => upstream.enabled).length
+      : 0;
 
   return (
     <PageShell fill>

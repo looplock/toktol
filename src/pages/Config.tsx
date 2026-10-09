@@ -26,6 +26,7 @@ import {
   type SkillView,
   type ToolConfigReport,
 } from "../lib/api";
+import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { TOOL_ITEMS } from "../lib/tools";
 import type { MessageKey, Strings } from "../i18n/strings";
 
@@ -53,27 +54,20 @@ export function ConfigPage({ strings, initial, initialTab }: ConfigPageProps) {
   const [tab, setTab] = useState<ConfigTab>(initialTab ?? "mcp");
   /** 技能详情"在文件中打开"的跳转焦点：置入后文件页签选中该条目，消费后清空。 */
   const [focusFile, setFocusFile] = useState<{ root: string; rel: string } | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
+  // 已看过的工具报告缓存：切回零等待。缓存命中时停用装载（deps null），
+  // 未命中交给 useInvokeQuery，成功报告经 onSuccess 写回缓存——hook 只持有
+  // 当前工具，跨工具的数据都在 reports 里。
   const report = reports[toolId] ?? null;
+  const reportQuery = useInvokeQuery({
+    deps: report !== null ? null : [toolId],
+    fetch: () => fetchToolConfig(toolId),
+    onSuccess: (next) => {
+      setReports((prev) => (prev[toolId] === next ? prev : { ...prev, [toolId]: next }));
+    },
+  });
+  const loadError = report === null ? reportQuery.error : null;
   const loading = report === null && loadError === null;
-
-  useEffect(() => {
-    if (reports[toolId] !== undefined) return;
-    let alive = true;
-    fetchToolConfig(toolId)
-      .then((next) => {
-        if (!alive) return;
-        setReports((prev) => ({ ...prev, [toolId]: next }));
-        setLoadError(null);
-      })
-      .catch((err: unknown) => {
-        if (alive) setLoadError(String(err));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [toolId, reports]);
 
   const toolLabel =
     TOOL_ITEMS.find((item) => item.id === toolId)?.label ?? toolId;

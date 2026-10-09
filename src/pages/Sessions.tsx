@@ -30,6 +30,7 @@ import {
   type SessionRow,
   type SessionsPagePayload,
 } from "../lib/api";
+import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { formatTimestamp } from "../lib/format";
 import type { SessionFocus } from "../lib/routes";
 import { SessionDetailView } from "./sessions/SessionDetailView";
@@ -79,13 +80,6 @@ export function SessionsPage({
 
   const [page, setPage] = useState(1);
 
-  const [pageData, setPageData] = useState<SessionsPagePayload>(
-    initialPageData ?? { rows: [], total: 0 },
-  );
-  // 注入首帧数据（测试缝隙）时跳过加载态：SSR 不跑 effect，loading 需就地就绪。
-  const [loading, setLoading] = useState(initialPageData === undefined);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
   // 筛选态：工具集合 + 生效搜索词（searchInput 防抖后落入 search）。
   const [toolFilter, setToolFilter] = useState<ReadonlySet<string>>(new Set());
   const [searchInput, setSearchInput] = useState("");
@@ -98,10 +92,8 @@ export function SessionsPage({
   );
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  // 部分失败计数（数据库来源的会话不可删）；下次成功拉取时清掉。
+  // 部分失败计数（数据库来源的会话不可删）；下次成功拉取时清掉（onSuccess）。
   const [deleteFailedCount, setDeleteFailedCount] = useState<number | null>(null);
-  // 删除后手动刷新一次列表（翻页/筛选之外的失效源）。
-  const [refreshTick, setRefreshTick] = useState(0);
   // 待确认的删除：单删指向会话 id，批删不指向；null = 没有弹层。
   // 删除语义（文件进回收站、统计保留）在弹层里说明，确认后才执行。
   const [confirm, setConfirm] = useState<
@@ -128,33 +120,25 @@ export function SessionsPage({
     [toolFilter, search],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchSessionsPage({
-      filters,
-      disabled: disabledTools,
-      sortKey: null,
-      sortDesc: true,
-      offset: (page - 1) * DEFAULT_PAGE_SIZE,
-      limit: DEFAULT_PAGE_SIZE,
-    })
-      .then((next) => {
-        if (cancelled) return;
-        setPageData(next);
-        setLoadError(null);
-        setDeleteFailedCount(null);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLoadError(String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [disabledTools, page, filters, refreshTick]);
+  const sessionsQuery = useInvokeQuery({
+    deps: [filters, disabledTools, page],
+    fetch: () =>
+      fetchSessionsPage({
+        filters,
+        disabled: disabledTools,
+        sortKey: null,
+        sortDesc: true,
+        offset: (page - 1) * DEFAULT_PAGE_SIZE,
+        limit: DEFAULT_PAGE_SIZE,
+      }),
+    initialData: initialPageData,
+    onSuccess: () => setDeleteFailedCount(null),
+  });
+  const pageData = sessionsQuery.data ?? { rows: [], total: 0 };
+  const loading = sessionsQuery.loading;
+  const loadError = sessionsQuery.error;
+  // 删除后手动刷新一次列表（翻页/筛选之外的失效源）。
+  const refreshList = sessionsQuery.reload;
 
   // 跨页焦点：按会话 id 搜索定位（sessions_page 的 search 覆盖 external_id），
   // 找到即选中——目标不一定在当前分页页上，选中态不依赖列表可见。无论命中
@@ -263,7 +247,7 @@ export function SessionsPage({
           prev !== null && checkedIds.has(prev.id) ? null : prev,
         );
         clearChecked();
-        setRefreshTick((tick) => tick + 1);
+        refreshList();
       })
       .catch((err: unknown) => {
         setDeleteError(String(err));
@@ -295,7 +279,7 @@ export function SessionsPage({
           next.delete(sessionId);
           return next;
         });
-        setRefreshTick((tick) => tick + 1);
+        refreshList();
       })
       .catch((err: unknown) => {
         setDeleteError(String(err));

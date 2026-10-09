@@ -1,7 +1,7 @@
 // 总览页：数据走 IPC 聚合（fetchOverview），mock 只留给 harness 回退与测试。
 // 筛选语义与明细页一致：projects 里的 "" 是"无项目"哨兵，展示层换成文案。
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DashboardGrid } from "./dashboard/DashboardGrid";
 import {
@@ -19,6 +19,7 @@ import {
 } from "../components/data/FilterToolbar";
 import { type MultiSelectOption } from "../components/data/MultiSelect";
 import type { Strings } from "../i18n/strings";
+import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { formatCount } from "../lib/format";
 import { timePresetsOf, toggleValue, weekdaysOf } from "../lib/filters";
 import { toolLabel } from "../lib/tools";
@@ -197,73 +198,57 @@ export function OverviewPage({ strings, disabledTools, scanVersion }: OverviewPa
   const [query, setQuery] = useState("");
   // 搜索词防抖：本地聚合虽快，逐键发 IPC 也没必要。
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [base, setBase] = useState<DashboardData | null>(null);
-  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 250);
     return () => clearTimeout(timer);
   }, [query]);
 
-  const cleanupRef = useRef<(() => void) | null>(null);
-  const load = useCallback(() => {
-    cleanupRef.current?.();
-    let cancelled = false;
-    cleanupRef.current = () => {
-      cancelled = true;
-    };
+  // 顶部筛选 → IPC 查询。time.range 在切预设/自定义时总是同步成生效区间。
+  const filters = useMemo(
+    () => filtersOf(time, toolSel, modelSel, projectSel, debouncedQuery),
+    [time, toolSel, modelSel, projectSel, debouncedQuery],
+  );
 
-    const filters = filtersOf(
-      time,
-      toolSel,
-      modelSel,
-      projectSel,
-      debouncedQuery,
-    );
-    // 选项与计数取自未筛选的数据（与明细页一致的静态全量口径），不随当前选择跳动。
-    const baseFilters: UsageFilters = {
-      timeStart: filters.timeStart,
-      timeEnd: filters.timeEnd,
-      tools: [],
-      models: [],
-      projects: [],
-      search: null,
-    };
-    const request: Promise<[DashboardData, DashboardData]> = isTauriRuntime()
-      ? Promise.all([
-          fetchOverview(filters, disabledTools),
-          fetchOverview(baseFilters, disabledTools),
-        ]).then(([payload, basePayload]) => [hydrate(payload), hydrate(basePayload)])
-      : // 纯浏览器（harness）没有壳能力：回退到 mock，布局调试不受影响。
-        Promise.all([
-          buildMockDashboard(mockRangeOf(time), {
-            tools: toolSel,
-            models: modelSel,
-            projects: projectSel,
-            query: debouncedQuery,
-          }),
-          buildMockDashboard(mockRangeOf(time)),
-        ]);
-
-    request
-      .then(([next, baseNext]) => {
-        if (cancelled) return;
-        setData(next);
-        setBase(baseNext);
-        setLoadError(false);
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError(true);
-      });
-  }, [time, toolSel, modelSel, projectSel, debouncedQuery, disabledTools]);
-
-  useEffect(() => {
-    // scanVersion 只在扫描真正带来新记录/新会话时递增（与明细页同一信号）：
-    // 停在前台时扫到新数据，仪表盘跟着自动更新。
-    load();
-    return () => cleanupRef.current?.();
-  }, [load, scanVersion]);
+  // 仪表盘装载：主查询与"未筛选基线"一并取回；scanVersion 只在扫描真正
+  // 带来新记录/新会话时递增（与明细页同一信号），停在前台时扫到新数据
+  // 仪表盘跟着自动更新。纯浏览器（harness）没有壳能力：回退 mock，布局
+  // 调试不受影响。
+  const dashboardQuery = useInvokeQuery({
+    deps: [filters, disabledTools, scanVersion],
+    fetch: () => {
+      // 选项与计数取自未筛选的数据（与明细页一致的静态全量口径），不随当前选择跳动。
+      const baseFilters: UsageFilters = {
+        timeStart: filters.timeStart,
+        timeEnd: filters.timeEnd,
+        tools: [],
+        models: [],
+        projects: [],
+        search: null,
+      };
+      const request: Promise<[DashboardData, DashboardData]> = isTauriRuntime()
+        ? Promise.all([
+            fetchOverview(filters, disabledTools),
+            fetchOverview(baseFilters, disabledTools),
+          ]).then(([payload, basePayload]) => [hydrate(payload), hydrate(basePayload)])
+        : Promise.all([
+            buildMockDashboard(mockRangeOf(time), {
+              tools: toolSel,
+              models: modelSel,
+              projects: projectSel,
+              query: debouncedQuery,
+            }),
+            buildMockDashboard(mockRangeOf(time)),
+          ]);
+      return request;
+    },
+  });
+  const loadError = dashboardQuery.error;
+  const loaded = dashboardQuery.data;
+  const data = loaded?.[0] ?? null;
+  const base = loaded?.[1] ?? null;
+  // 错误重试按钮的回调（hook 的 reload 即重拉当前键）。
+  const load = dashboardQuery.reload;
 
   useEffect(() => {
     writeLayout(doc);

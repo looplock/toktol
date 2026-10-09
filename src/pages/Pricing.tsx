@@ -13,7 +13,7 @@
  * 所有写操作后端同事务自动重算，前端只需重拉 overview + 弹气泡。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { Card } from "../components/ui/Card";
 import { PageShell } from "../components/PageShell";
@@ -31,6 +31,7 @@ import {
   type PricingModelRow,
   type PricingOverviewPayload,
 } from "../lib/api";
+import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { formatCount, formatTimestamp } from "../lib/format";
 import { TOAST_DONE_MS, type ScanToastKind } from "../lib/scanToast";
 import {
@@ -62,10 +63,18 @@ export function PricingPage({
   initialEditing = false,
   initialCopyQuery = "",
 }: PricingPageProps) {
-  const [payload, setPayload] = useState<PricingOverviewPayload | null>(
-    initialOverview ?? null,
-  );
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // 概览装载：scanVersion 进 deps（扫描带来新模型即重拉），写操作后的
+  // 重算走 reload。加载错是页面级的（顶部红条）；写操作的失败走 failed
+  // 气泡——两者分家，改价失败不再顶掉"加载失败"。
+  const overview = useInvokeQuery({
+    deps: [scanVersion],
+    fetch: fetchPricingOverview,
+    initialData: initialOverview,
+  });
+  const payload = overview.data;
+  const loadError = overview.error;
+  const reload = overview.reload;
+
   const [syncing, setSyncing] = useState(false);
   /** 左列表当前选中的标准模型 id；null = 跟随 filtered 首项。 */
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -77,15 +86,6 @@ export function PricingPage({
   >(null);
   const toastSeq = useRef(0);
   const toastTimer = useRef<number | undefined>(undefined);
-
-  const reload = useCallback(() => {
-    fetchPricingOverview()
-      .then((next) => {
-        setPayload(next);
-        setLoadError(null);
-      })
-      .catch((err: unknown) => setLoadError(String(err)));
-  }, []);
 
   const popToast = useCallback((kind: ScanToastKind, title: string, detail?: string) => {
     toastSeq.current += 1;
@@ -99,10 +99,6 @@ export function PricingPage({
       setToast((prev) => (prev !== null && prev.seq === seq ? null : prev));
     }, TOAST_DONE_MS);
   }, []);
-
-  useEffect(() => {
-    reload();
-  }, [reload, scanVersion]);
 
   const models = useMemo(() => payload?.models ?? [], [payload]);
   const allIds = useMemo(() => models.map((m) => m.id), [models]);
@@ -156,7 +152,9 @@ export function PricingPage({
         reload();
         popToast("done", strings.pricingToastPrice, strings.pricingToastRecost);
       })
-      .catch((err: unknown) => setLoadError(String(err)));
+      .catch((err: unknown) =>
+        popToast("failed", strings.pricingToastPrice, String(err)),
+      );
   }
 
   function applyCatalogPrice(entry: CatalogModelBrief): void {
@@ -171,7 +169,9 @@ export function PricingPage({
         reload();
         popToast("done", strings.pricingToastCopyPrice, strings.pricingToastRecost);
       })
-      .catch((err: unknown) => setLoadError(String(err)));
+      .catch((err: unknown) =>
+        popToast("failed", strings.pricingToastCopyPrice, String(err)),
+      );
   }
 
   function confirmSuggestion(row: PricingModelRow): void {
@@ -187,7 +187,9 @@ export function PricingPage({
         reload();
         popToast("done", strings.pricingToastSuggestion, strings.pricingToastRecost);
       })
-      .catch((err: unknown) => setLoadError(String(err)));
+      .catch((err: unknown) =>
+        popToast("failed", strings.pricingToastSuggestion, String(err)),
+      );
   }
 
   function runSync(): void {
@@ -224,7 +226,9 @@ export function PricingPage({
         reload();
         popToast("done", strings.pricingToastRepoint, recostDetail(n));
       })
-      .catch((err: unknown) => setLoadError(String(err)));
+      .catch((err: unknown) =>
+        popToast("failed", strings.pricingToastRepoint, String(err)),
+      );
   }
 
   function confirmMapping(modelId: string): void {
@@ -233,20 +237,22 @@ export function PricingPage({
         reload();
         popToast("done", strings.pricingToastMapping, recostDetail(n));
       })
-      .catch((err: unknown) => setLoadError(String(err)));
+      .catch((err: unknown) =>
+        popToast("failed", strings.pricingToastMapping, String(err)),
+      );
   }
 
   function runUnify(target: UnifyCandidate): void {
     if (selectedId === null || target.id === selectedId) return;
-    const op =
-      target.kind === "catalog"
-        ? renameModel(selectedId, target.id).then((n) =>
-            popToast("done", strings.pricingToastRename, recostDetail(n)),
-          )
-        : mergeModels(selectedId, target.id).then((n) =>
-            popToast("done", strings.pricingToastMerge, recostDetail(n)),
-          );
-    op.then(() => reload()).catch((err: unknown) => setLoadError(String(err)));
+    const renaming = target.kind === "catalog";
+    const title = renaming ? strings.pricingToastRename : strings.pricingToastMerge;
+    const op = renaming
+      ? renameModel(selectedId, target.id)
+      : mergeModels(selectedId, target.id);
+    op.then((n) => {
+      reload();
+      popToast("done", title, recostDetail(n));
+    }).catch((err: unknown) => popToast("failed", title, String(err)));
   }
 
   const syncedAt = payload?.syncedAt == null ? null : formatTimestamp(payload.syncedAt);

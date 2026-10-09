@@ -10,10 +10,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   fetchUsageFilterOptions,
   fetchUsageRecords,
-  type UsageFilterOptionsPayload,
   type UsageFilters,
   type UsageRecordRow,
-  type UsageRecordsPage,
 } from "../lib/api";
 import {
   DataTable,
@@ -30,6 +28,7 @@ import { PageShell } from "../components/PageShell";
 import { Pagination } from "../components/data/Pagination";
 import type { Strings } from "../i18n/strings";
 import type { InputScope } from "../lib/inputScope";
+import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { modelIcon, toolIcon, type BrandIconAsset } from "../lib/brandIcons";
 import { defaultTimeSelection, timePresetsOf, toggleValue, weekdaysOf } from "../lib/filters";
 import type { SessionFocus } from "../lib/routes";
@@ -80,16 +79,6 @@ export function DetailsPage({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
-  const [pageData, setPageData] = useState<UsageRecordsPage>({
-    rows: [],
-    total: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [options, setOptions] = useState<UsageFilterOptionsPayload | null>(
-    null,
-  );
-
   // 搜索词防抖：会话 id / 项目目录都是长串，逐键直查浪费查询。
   useEffect(() => {
     const timer = window.setTimeout(
@@ -112,51 +101,37 @@ export function DetailsPage({
   );
 
   // 服务端排序（sortMode="server"）：排序键白名单在 Rust 侧，白名单外退回时间排序。
+  // 页码钳位在 fetch 闭包里做（经 ref 取最新渲染的 data，等价于原先 effect
+  // 时读 state）：deps 用 page，渲染层的 currentPage 钳位不变。
+  const records = useInvokeQuery({
+    deps: [filters, disabledTools, sort, page, pageSize, scanVersion],
+    fetch: () => {
+      const total = records.data?.total ?? 0;
+      const current = Math.min(page, Math.max(1, Math.ceil(total / pageSize)));
+      return fetchUsageRecords({
+        filters,
+        disabled: disabledTools,
+        sortKey: sort?.key ?? null,
+        sortDesc: sort?.desc ?? true,
+        offset: (current - 1) * pageSize,
+        limit: pageSize,
+      });
+    },
+  });
+  const pageData = records.data ?? { rows: [], total: 0 };
+  const loading = records.loading;
+  const loadError = records.error;
+  // 渲染层的页码钳位：total 缩水后停在越界页时归位显示。
   const pageCount = Math.max(1, Math.ceil(pageData.total / pageSize));
   const currentPage = Math.min(page, pageCount);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchUsageRecords({
-      filters,
-      disabled: disabledTools,
-      sortKey: sort?.key ?? null,
-      sortDesc: sort?.desc ?? true,
-      offset: (currentPage - 1) * pageSize,
-      limit: pageSize,
-    })
-      .then((next) => {
-        if (cancelled) return;
-        setPageData(next);
-        setLoadError(null);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLoadError(String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [filters, disabledTools, sort, currentPage, pageSize, scanVersion]);
-
-  // 选项计数走分面口径：每个维度用其余筛选条件计数（后端拆分），
-  // 随任一筛选与禁用工具、扫描出新的数据即时刷新。
-  useEffect(() => {
-    let cancelled = false;
-    fetchUsageFilterOptions(filters, disabledTools)
-      .then((next) => {
-        if (!cancelled) setOptions(next);
-      })
-      .catch(() => {
-        // 选项加载失败不阻塞页面：下拉为空，主查询的错误另有提示。
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [filters, disabledTools, scanVersion]);
+  // 选项计数各一个装载实例：错误不渲染（选项失败静默不阻塞页面，主查询
+  // 的错误另有提示）；分面口径——每个维度用其余筛选条件计数（后端拆分）。
+  const facetQuery = useInvokeQuery({
+    deps: [filters, disabledTools, scanVersion],
+    fetch: () => fetchUsageFilterOptions(filters, disabledTools),
+  });
+  const options = facetQuery.data;
 
   // 被禁用的工具要从选择里摘掉：选项已不可见，留着等于永远少一块、解释不清的数据。
   useEffect(() => {
