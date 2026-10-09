@@ -4,7 +4,9 @@
 //!
 //! 项目目录：日志行不带 cwd，但日志按项目分目录存放——目录名是编码后的项目
 //! 路径（`d-Work-Demo-App` → `D:\Work\Demo\App`，
-//! 见 [`decode_project_dir`]），从来源文件路径解码。
+//! 见 [`decode_project_dir`]），从来源文件路径解码。子智能体日志深两层
+//! （`<编码项目>/<会话id>/subagents/agent-*.jsonl`），沿父目录向上找编码目录，
+//! 见 [`WorkBuddyAdapter::project_dir_of`]。
 //!
 //! 格式（实测）：`type:"message"`（顶层 role/content）与 `type:"function_call"`
 //! （`message` 字段只装 usage）两类行携带用量；模型在 `providerData.model`。
@@ -213,9 +215,21 @@ impl Adapter for WorkBuddyAdapter {
 }
 
 impl WorkBuddyAdapter {
-    /// 日志文件 → 项目目录：取存放目录（`projects/<编码路径>/`）的目录名解码。
+    /// 日志文件 → 项目目录：沿父目录向上找到编码项目目录再解码。主会话日志
+    /// 直接位于 `projects/<编码路径>/`；子智能体日志深两层
+    /// （`<编码路径>/<会话id>/subagents/agent-*.jsonl`）。中间层目录名（会话
+    /// uuid 各段定长、`subagents`）不是"单盘符-名字"形态，解码恒失败不会误认
+    /// ——自下而上首个解码成功者即归属（扫描只喂日志根下的文件，根之上无
+    /// 该形态的目录名）。
     fn project_dir_of(&self, source_file: &Path) -> Option<String> {
-        let encoded = source_file.parent()?.file_name()?.to_str()?;
+        source_file.ancestors().skip(1).find_map(|dir| {
+            let encoded = dir.file_name()?.to_str()?;
+            self.decoded_dir(encoded)
+        })
+    }
+
+    /// 编码目录名 → 项目路径，带缓存（FS 验证有 stat 成本，同一编码只解一次）。
+    fn decoded_dir(&self, encoded: &str) -> Option<String> {
         let mut cache = self.decoded.lock().ok()?;
         cache.get(encoded).cloned().unwrap_or_else(|| {
             let decoded = decode_project_dir(encoded);
@@ -1166,6 +1180,77 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&projects).unwrap();
+    }
+
+    /// 子智能体日志深两层（`<编码项目>/<会话id>/subagents/agent-*.jsonl`）：
+    /// 项目归属要跳过会话 uuid 与 `subagents` 两层找到编码项目目录。
+    /// 与上面的主会话测试同款 FS 消歧前提，仅 Windows 宿主运行。
+    #[cfg(windows)]
+    #[test]
+    fn subagent_log_inherits_project_from_ancestor_dir() {
+        let projects = std::env::temp_dir().join(format!("toktol-wb-sub-{}", std::process::id()));
+        let project = projects.join("wb-demo-proj");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let text = project.to_string_lossy();
+        let encoded = format!(
+            "{}-{}",
+            text[..1].to_lowercase(),
+            text[3..].replace(['\\', '/'], "-")
+        );
+        let log = projects
+            .join(&encoded)
+            .join("01a2b3c4-1111-2222-3333-444455556666")
+            .join("subagents")
+            .join("agent-x.jsonl");
+        std::fs::create_dir_all(log.parent().unwrap()).unwrap();
+
+        let adapter = adapter();
+        let line = r#"{"type":"message","role":"user","sessionId":"sa1","timestamp":1790084484321,"content":[{"type":"input_text","text":"子代理提问"}]}"#;
+        let facts = match adapter.parse_file_at(&log, &[line], 0).remove(0) {
+            LineParse::Facts(facts) => *facts,
+            other => panic!("期望 Facts，实际 {other:?}"),
+        };
+        assert_eq!(
+            facts.project_dir.as_deref(),
+            Some(project.to_string_lossy().as_ref()),
+            "子代理日志隔两层仍归属到编码项目目录"
+        );
+
+        std::fs::remove_dir_all(&projects).unwrap();
+    }
+
+    /// 会话 uuid 目录名形如"多字符-…"，不是单盘符形态，绝不能被误认成项目
+    /// 目录（平台无关：uuid 目录 + 不存在的盘符走朴素解码，项目目录紧邻其上）。
+    #[test]
+    fn walk_skips_uuid_and_subagents_levels_without_misattribution() {
+        let home = crate::paths::home_dir().expect("测试宿主必须有 home 目录");
+        let log = home
+            .join(".workbuddy")
+            .join("projects")
+            .join("q-Work-Demo-App")
+            .join("01a2b3c4-1111-2222-3333-444455556666")
+            .join("subagents")
+            .join("agent-x.jsonl");
+        let facts = match adapter().parse_file_at(&log, &[FUNCTION_CALL], 0).remove(0) {
+            LineParse::Facts(facts) => *facts,
+            other => panic!("期望 Facts，实际 {other:?}"),
+        };
+        // `subagents` 与会话 uuid 解不出盘符形态，向上命中 q-Work-Demo-App；
+        // Q: 盘在生产环境不存在，FS 验证失败走朴素解码回退。
+        assert_eq!(facts.project_dir.as_deref(), Some("Q:\\Work\\Demo\\App"));
+    }
+
+    /// 祖先链上没有任何"盘符-名字"形态的目录时无从判定项目归属，返回 None
+    /// 不编造（uuid 各段定长、常规目录名不带单盘符前缀，都解不出来）。
+    #[test]
+    fn file_without_encodable_ancestor_has_no_project_dir() {
+        let log = std::env::temp_dir().join("toktol-wb-outside-s1.jsonl");
+        let facts = match adapter().parse_file_at(&log, &[FUNCTION_CALL], 0).remove(0) {
+            LineParse::Facts(facts) => *facts,
+            other => panic!("期望 Facts，实际 {other:?}"),
+        };
+        assert_eq!(facts.project_dir, None);
     }
 
     /// 目录验证失败（项目已删）退回朴素解码：全部 `-` 视作分隔符——可能不精确

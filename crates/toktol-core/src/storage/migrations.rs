@@ -478,4 +478,12 @@ pub(super) const MIGRATIONS: &[&str] = &[
     DELETE FROM usage_records WHERE tool = 'grok' AND session_id IS NOT NULL;
     UPDATE scanned_files SET parsed_bytes = 0 WHERE tool = 'grok';
     ",
+    // v24：workbuddy 子智能体日志（projects/<编码项目>/<会话id>/subagents/
+    // agent-*.jsonl）此前解码不出项目目录——适配器只取直接父目录名，对子代理
+    // 日志拿到的是 `subagents`。适配器已改为沿父目录向上找编码项目目录；游标
+    // 归零触发重扫回填：重复入账由 dedup_key 拦住，已存在的会话只补 NULL 的
+    // project_dir（同 v4 口径）。
+    "
+    UPDATE scanned_files SET parsed_bytes = 0 WHERE tool = 'workbuddy';
+    ",
 ];
