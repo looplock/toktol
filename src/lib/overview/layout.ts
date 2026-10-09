@@ -102,6 +102,16 @@ type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
 
 export const DEFAULT_CARD_CONFIG: CardConfig = { metric: "tokens", chart: "bar" };
 
+/** 按卡片 id 取默认布局。id 必须来自 DEFAULT_WIDGETS（卡片 id 全集）；未知 id
+ *  说明调用方与默认表脱节，直接抛错暴露 bug——不再用 as 把 undefined 掩盖成
+ *  运行时崩溃。生产路径（withDefaults）保证 doc.widgets 含全部默认卡片，
+ *  这里只接住语义上不可能的兜底分支。 */
+export function defaultWidgetFor(id: string): LayoutWidget {
+  const found = DEFAULT_WIDGETS.find((widget) => widget.id === id);
+  if (found === undefined) throw new Error(`unknown widget id: ${id}`);
+  return found;
+}
+
 function isWidget(value: unknown): value is LayoutWidget {
   if (typeof value !== "object" || value === null) return false;
   const widget = value as Record<string, unknown>;

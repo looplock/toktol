@@ -25,6 +25,7 @@ import {
   isTauriRuntime,
   type SessionRow,
   type TranscriptPageEntry,
+  type TranscriptProgressPayload,
   type TranscriptTurn,
 } from "../../lib/api";
 import { formatTimestamp, formatTokens } from "../../lib/format";
@@ -125,13 +126,8 @@ export function SessionDetailView({
     const buildThen = (next: () => Promise<void>) => {
       setState({ kind: "building", done: 0, total: 0 });
       const unlisten = isTauriRuntime()
-        ? listen(TRANSCRIPT_PROGRESS_EVENT, (event) => {
-            const p = event.payload as {
-              tool: string;
-              externalId: string;
-              done: number;
-              total: number;
-            };
+        ? listen<TranscriptProgressPayload>(TRANSCRIPT_PROGRESS_EVENT, (event) => {
+            const p = event.payload;
             if (p.tool === row.tool && p.externalId === row.externalId) {
               if (!cancelled) {
                 setState({ kind: "building", done: p.done, total: p.total });

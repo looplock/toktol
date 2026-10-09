@@ -491,7 +491,7 @@ pub struct DashboardPayload {
     /// 时间趋势，按桶起点升序；空数据为空数组。
     pub trend: Vec<DashboardTrendBucket>,
     /// 趋势粒度：`hour` / `day` / `month`，前端据此生成本地化 label。
-    pub trend_grain: String,
+    pub trend_grain: overview::TrendGrain,
     /// 按模型拆分的趋势序列。
     pub model_trend: Vec<DashboardModelSeries>,
     /// 按模型构成，已知成本降序。

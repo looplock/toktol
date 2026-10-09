@@ -26,6 +26,7 @@ import { toolLabel } from "../lib/tools";
 import {
   DEFAULT_CARD_CONFIG,
   DEFAULT_WIDGETS,
+  defaultWidgetFor,
   readLayout,
   withDefaults,
   writeLayout,
@@ -311,10 +312,9 @@ export function OverviewPage({
   }
 
   function widgetFor(id: string): LayoutWidget {
-    return (
-      doc.widgets.find((widget) => widget.id === id) ??
-      (DEFAULT_WIDGETS.find((widget) => widget.id === id) as LayoutWidget)
-    );
+    // doc.widgets 由 withDefaults(DEFAULT_WIDGETS, …) 保证含全部默认卡片；
+    // 缺失只能是代码 bug，defaultWidgetFor 直接抛错而不是返回 undefined。
+    return doc.widgets.find((widget) => widget.id === id) ?? defaultWidgetFor(id);
   }
 
   function configFor(id: string): CardConfig {

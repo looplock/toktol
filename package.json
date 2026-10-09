@@ -14,10 +14,11 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "check": "pnpm run verify:deps && pnpm run verify:constants && pnpm run verify:theme-tokens && pnpm run verify:style && pnpm run verify:version && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && tsc --noEmit",
+    "check": "pnpm run verify:deps && pnpm run verify:constants && pnpm run verify:api && pnpm run verify:theme-tokens && pnpm run verify:style && pnpm run verify:version && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && tsc --noEmit",
     "tauri": "tauri",
     "verify:version": "node scripts/verify-release-version.mjs",
     "verify:constants": "node scripts/verify-constants-parity.mjs",
+    "verify:api": "node scripts/verify-api-parity.mjs",
     "verify:theme-tokens": "node scripts/verify-theme-tokens.mjs",
     "verify:style": "node scripts/verify-style-tokens.mjs",
     "verify:deps": "node scripts/verify-declared-deps.mjs"

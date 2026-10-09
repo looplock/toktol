@@ -10,9 +10,11 @@ mod shell_config;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use toktol_core::scan::ScanReport;
 use toktol_core::scan::scheduler::{ScanEvent, ScanLoopDeps, ScanLoopHandle};
 use toktol_gateway::proxy::GatewayHandle;
 
@@ -21,6 +23,18 @@ use shell_config::ShellConfigState;
 /// 扫描事件：常驻循环的进度广播给前端（窗口销毁后没有监听者，emit 是无害的）。
 const SCAN_STARTED_EVENT: &str = "scan://started";
 const SCAN_FINISHED_EVENT: &str = "scan://finished";
+
+/// scan://finished 事件的载荷：成功带报告，失败只带稳定错误码。
+/// 字段名与 api.ts 的镜像由 verify:api 盯着。
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanFinishedPayload {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<ScanReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 const TRAY_ID: &str = "main";
 const WINDOW_LABEL: &str = "main";
 
@@ -180,13 +194,21 @@ fn spawn_scan_loop(app: AppHandle, state: ShellConfigState) {
             ScanEvent::Finished(Ok(report)) => {
                 let _ = event_app.emit(
                     SCAN_FINISHED_EVENT,
-                    serde_json::json!({ "ok": true, "report": report }),
+                    ScanFinishedPayload {
+                        ok: true,
+                        report: Some(report),
+                        error: None,
+                    },
                 );
             }
             ScanEvent::Finished(Err(err)) => {
                 let _ = event_app.emit(
                     SCAN_FINISHED_EVENT,
-                    serde_json::json!({ "ok": false, "error": err.code().as_str() }),
+                    ScanFinishedPayload {
+                        ok: false,
+                        report: None,
+                        error: Some(err.code().as_str().to_string()),
+                    },
                 );
             }
         }),

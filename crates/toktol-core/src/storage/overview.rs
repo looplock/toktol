@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, Local, LocalResult, NaiveDate, TimeZone, Timelike};
 use rusqlite::params_from_iter;
+use serde::Serialize;
 
 use super::usage::usage_where;
 
@@ -102,7 +103,7 @@ impl Storage {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         if max_ts <= 0 {
-            return Ok(empty_dashboard("day"));
+            return Ok(empty_dashboard(TrendGrain::Day));
         }
 
         // 窗口端点：显式筛选优先；"不限时间"回落数据的 MIN/MAX（上界再与现在取大，
@@ -517,7 +518,7 @@ impl Storage {
         Ok(DashboardPayload {
             totals,
             trend,
-            trend_grain: grain.as_str().to_string(),
+            trend_grain: grain,
             model_trend,
             composition,
             projects,
@@ -555,23 +556,17 @@ fn dashboard_cte(where_sql: &str) -> String {
 }
 
 /// 趋势分桶粒度：跨度 ≤2 天按小时，≤62 天按天，否则按月。与载荷的
-/// `trend_grain` 一同交给前端，label 的粒度跟它走。
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TrendGrain {
+/// `trend_grain` 一同交给前端，label 的粒度跟它走。序列化值（`hour` /
+/// `day` / `month`）即线上契约，前端镜像见 api.ts 的 `TrendGrain`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrendGrain {
     Hour,
     Day,
     Month,
 }
 
 impl TrendGrain {
-    fn as_str(self) -> &'static str {
-        match self {
-            TrendGrain::Hour => "hour",
-            TrendGrain::Day => "day",
-            TrendGrain::Month => "month",
-        }
-    }
-
     /// 把 ts（ms）对齐到本地时区桶起点的 SQL 表达式。'localtime' 先转到本地
     /// 墙钟、取粒度起点，再以 'utc' 转回 epoch——漏掉最后一步会把本地墙钟
     /// 当 UTC 解释，起点恰好偏移一个时区。注意 SQLite 没有 'start of hour'
@@ -716,7 +711,7 @@ pub(crate) fn union_duration_ms(mut intervals: Vec<(i64, i64)>, lo: i64, hi: i64
 }
 
 /// 空库 / 脏窗口时的零值载荷：activity 仍给全 168 格（热力图按网格画）。
-fn empty_dashboard(grain: &str) -> DashboardPayload {
+fn empty_dashboard(grain: TrendGrain) -> DashboardPayload {
     let mut activity = Vec::with_capacity(7 * 24);
     for day in 0..7 {
         for hour in 0..24 {
@@ -742,7 +737,7 @@ fn empty_dashboard(grain: &str) -> DashboardPayload {
             active_tools: 0,
         },
         trend: Vec::new(),
-        trend_grain: grain.to_string(),
+        trend_grain: grain,
         model_trend: Vec::new(),
         composition: Vec::new(),
         projects: Vec::new(),

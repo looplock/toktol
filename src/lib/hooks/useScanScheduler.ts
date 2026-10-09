@@ -13,19 +13,13 @@ import {
   isTauriRuntime,
   scanTrigger,
   type ScanBacklog,
+  type ScanFinishedPayload,
   type ScanReport,
 } from "../api";
 import type { ScanOutcome } from "../scanToast";
 
 const SCAN_STARTED_EVENT = "scan://started";
 const SCAN_FINISHED_EVENT = "scan://finished";
-
-/** 壳发的 finished 事件载荷；失败只带稳定错误码。 */
-interface ScanFinishedPayload {
-  readonly ok: boolean;
-  readonly report?: ScanReport;
-  readonly error?: string;
-}
 
 /** 扫描是否带来了新数据（新记录或新会话）。 */
 export function scanFoundData(report: ScanReport): boolean {

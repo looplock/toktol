@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::overview::union_duration_ms;
+use super::overview::{TrendGrain, union_duration_ms};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{Datelike, Local, TimeZone};
@@ -808,7 +808,7 @@ fn dashboard_aggregates_slices_and_conserves_totals() {
     assert_eq!(session.end_ms, T0 + 600_000, "末条记录 r2");
 
     // 趋势：窗口 3 天 → 天粒度 4 桶；守恒断言与时区无关。
-    assert_eq!(payload.trend_grain, "day");
+    assert_eq!(payload.trend_grain, TrendGrain::Day);
     assert_eq!(payload.trend.len(), 4);
     assert_eq!(payload.trend.iter().map(|b| b.calls).sum::<i64>(), 3);
     assert_eq!(
@@ -1023,7 +1023,7 @@ fn dashboard_today_window_uses_hour_grain() {
             &[],
         )
         .unwrap();
-    assert_eq!(payload.trend_grain, "hour");
+    assert_eq!(payload.trend_grain, TrendGrain::Hour);
     assert_eq!(payload.trend.len(), 24);
     assert_eq!(payload.totals.calls, 1);
     // 趋势守恒：唯一一条记录恰好落进一个桶。

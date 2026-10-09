@@ -6,6 +6,7 @@
 //! 错误通道：领域错误不跨 IPC 传结构体，只传稳定错误码字符串（[`ErrorCode::as_str`]），
 //! 前端按码选文案。
 
+use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 use toktol_core::error::ErrorCode;
 use toktol_core::{VERSION, paths, pricing, scan, sessions, storage};
@@ -181,6 +182,17 @@ pub async fn session_transcript_turns(
     .map_err(|_| ErrorCode::Internal.as_str().to_string())?
 }
 
+/// `transcript://progress` 事件的载荷：建站进度（done/total 为索引条目数）。
+/// 字段名与 api.ts 的镜像由 verify:api 盯着。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptProgressPayload {
+    pub tool: String,
+    pub external_id: String,
+    pub done: u64,
+    pub total: u64,
+}
+
 /// 为会话源文件构建转录索引：专用低优先级线程（Windows 下 THREAD_MODE_
 /// BACKGROUND，机器忙时自动让路），进度经 `transcript://progress` 事件
 /// 广播；返回是否建完整（false = 被取消，断点已落库）。
@@ -210,12 +222,12 @@ pub async fn session_transcript_build(
                 let progress = move |done: u64, total: u64| {
                     let _ = progress_app.emit(
                         "transcript://progress",
-                        serde_json::json!({
-                            "tool": build_tool,
-                            "externalId": build_external,
-                            "done": done,
-                            "total": total,
-                        }),
+                        TranscriptProgressPayload {
+                            tool: build_tool.clone(),
+                            external_id: build_external.clone(),
+                            done,
+                            total,
+                        },
                     );
                 };
                 let cancel = Arc::clone(&cancel);

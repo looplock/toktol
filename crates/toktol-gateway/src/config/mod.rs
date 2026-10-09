@@ -461,8 +461,10 @@ pub fn ensure_default(path: &Path) -> Result<bool> {
     Ok(true)
 }
 
-/// UI 侧提交的上游字段（serde camelCase 对齐前端）。
+/// UI 侧提交的上游字段（serde camelCase 对齐前端；缺了 rename_all 前端的
+/// `baseUrl`/`keyRef` 反序列化会直接失败——校验见前端 verify:api 脚本）。
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpstreamInput {
     /// 上游名（唯一标识；更新时允许改名，引用它的路由与默认上游同步改写）。
     pub name: String,

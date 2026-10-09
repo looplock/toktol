@@ -75,8 +75,14 @@ impl GatewayHandle {
 }
 
 /// 配置文件的对外视图：有效快照或校验错误。前端据此渲染配置概览与错误提示。
+/// 注意 `rename_all_fields`：容器上的 `rename_all` 只作用变体名，变体字段
+/// （如 token_count）不带它就会以 snake_case 上线，前端读不到。
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub enum ConfigView {
     /// 配置合法。
     Valid {

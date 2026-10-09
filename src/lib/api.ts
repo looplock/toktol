@@ -47,6 +47,13 @@ export interface ScanBacklog {
   readonly bytes: number;
 }
 
+/** `scan://finished` 事件的载荷：成功带报告，失败只带稳定错误码（壳 lib.rs 发出）。 */
+export interface ScanFinishedPayload {
+  readonly ok: boolean;
+  readonly report?: ScanReport;
+  readonly error?: string;
+}
+
 /** 手动触发一轮扫描：常驻循环在 Rust 壳（与窗口生死无关），这里只是通知。 */
 export function scanTrigger(): Promise<void> {
   return invoke("scan_trigger");
@@ -437,6 +444,14 @@ export interface TranscriptPagePayload {
   readonly built: boolean;
   readonly total: number;
   readonly entries: readonly TranscriptPageEntry[];
+}
+
+/** `transcript://progress` 事件的载荷：建站进度（done/total 为索引条目数，壳 commands.rs 发出）。 */
+export interface TranscriptProgressPayload {
+  readonly tool: string;
+  readonly externalId: string;
+  readonly done: number;
+  readonly total: number;
 }
 
 /** 轮次摘要的一段：正文文本或图片占位（tooltip 里图片段渲染成胶囊）。 */
