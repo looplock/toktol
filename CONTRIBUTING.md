@@ -98,7 +98,9 @@ CI 在 Ubuntu 上跑 `pnpm check` 与两套测试，另外在 Windows、macOS �
 
 - 一个 commit 只做一件事，提交信息说明"为什么"而不仅是"改了什么"。
 - 发布由 tag 驱动：`git tag v0.1.0 && git push origin v0.1.0`，CI 会校验版本一致性并
-  构建三平台 Draft Release，人工确认后才正式发布。
+  构建三平台 Draft Release，人工确认后才正式发布。发布正文取自 CHANGELOG 对应
+  版本的双语段落（`scripts/extract-release-notes.mjs` 提取）——打 tag 前段落必须
+  已写好，缺失即拦截；段落里的链接一律绝对 URL（Release 页不解析相对路径）。
 - 新增依赖需要在 PR 里说明理由——尤其是会给发布包增重的依赖（`reqwest` 会拖入 TLS
   整棵树）。声明依赖的同一个 PR 里必须有真正使用它的代码，否则 `verify:deps` 会报出来。
 

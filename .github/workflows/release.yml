@@ -17,6 +17,10 @@ jobs:
   verify-version:
     name: Verify version sources
     runs-on: ubuntu-latest
+    outputs:
+      # 发布正文的单一事实源是 CHANGELOG 对应版本的段落（双语，见 CHANGELOG
+      # 头部契约）；tag 触发时缺失段落即 fail-closed，拦住空壳 Release。
+      body: ${{ steps.notes.outputs.body }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -28,6 +32,16 @@ jobs:
           else
             node scripts/verify-release-version.mjs
           fi
+
+      - name: Extract release notes from CHANGELOG
+        if: github.ref_type == 'tag'
+        id: notes
+        run: |
+          {
+            echo 'body<<CHANGELOG_EOF'
+            node scripts/extract-release-notes.mjs "${GITHUB_REF_NAME}"
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.os }})
@@ -72,7 +86,9 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Toktol ${{ github.ref_name }}"
-          releaseBody: "See the assets below to download and install Toktol for your platform."
+          # tag 触发时来自 CHANGELOG 段落（verify job 提取）；手工 dispatch 无
+          # 对应段落，退回占位文本。
+          releaseBody: ${{ needs.verify-version.outputs.body || 'See the assets below to download and install Toktol for your platform.' }}
           releaseDraft: true
           prerelease: false
           args: --bundles ${{ matrix.bundles }}
