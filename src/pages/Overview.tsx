@@ -182,9 +182,16 @@ interface OverviewPageProps {
   readonly disabledTools: string[];
   /** 扫描带来新数据时递增：变化即重载仪表盘。 */
   readonly scanVersion: number;
+  /** 测试缝隙：注入首帧仪表盘（当前筛选 + 未筛选基线），跳过 IPC 拉取。 */
+  readonly initialDashboard?: [DashboardData, DashboardData];
 }
 
-export function OverviewPage({ strings, disabledTools, scanVersion }: OverviewPageProps) {
+export function OverviewPage({
+  strings,
+  disabledTools,
+  scanVersion,
+  initialDashboard,
+}: OverviewPageProps) {
   const [doc, setDoc] = useState<LayoutDoc>(() =>
     withDefaults(DEFAULT_WIDGETS, readLayout()),
   );
@@ -216,6 +223,7 @@ export function OverviewPage({ strings, disabledTools, scanVersion }: OverviewPa
   // 调试不受影响。
   const dashboardQuery = useInvokeQuery({
     deps: [filters, disabledTools, scanVersion],
+    ...(initialDashboard === undefined ? {} : { initialData: initialDashboard }),
     fetch: () => {
       // 选项与计数取自未筛选的数据（与明细页一致的静态全量口径），不随当前选择跳动。
       const baseFilters: UsageFilters = {

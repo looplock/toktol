@@ -177,12 +177,16 @@ function readCards(doc: Record<string, unknown>): Record<string, CardConfig> {
   return cards;
 }
 
-/** 读不到或读到脏数据就返回 null（不猜、不静默用半份）。 */
-export function readLayout(storage: Storage = localStorage): LayoutDoc | null {
+/** 读不到或读到脏数据就返回 null（不猜、不静默用半份）。SSR（node 测试环境）
+ * 没有 localStorage：无存储即无布局。 */
+export function readLayout(storage?: Storage): LayoutDoc | null {
+  const ls = storage ?? (typeof localStorage === "undefined" ? null : localStorage);
+  if (ls === null) return null;
+
   let parsed: unknown;
 
   try {
-    const raw = storage.getItem(LS_KEY_LAYOUT);
+    const raw = ls.getItem(LS_KEY_LAYOUT);
     if (raw === null) return null;
 
     parsed = JSON.parse(raw);

@@ -46,11 +46,15 @@ const PALETTE_SCHEMES: Record<Exclude<CardPaletteScheme, "default">, { light: Ch
   },
 };
 
-export function readChartPalette(root: Element = document.documentElement, scheme?: CardPaletteScheme): ChartPalette {
-  const style = getComputedStyle(root);
+export function readChartPalette(
+  root: Element | undefined = typeof document === "undefined" ? undefined : document.documentElement,
+  scheme?: CardPaletteScheme,
+): ChartPalette {
+  // SSR（node 测试环境）没有 DOM：整套退回 fallback 常量，浏览器行为不变。
+  const style = root === undefined ? null : getComputedStyle(root);
 
   const value = (name: string, fallback: string): string => {
-    const raw = style.getPropertyValue(name).trim();
+    const raw = style?.getPropertyValue(name).trim() ?? "";
 
     return raw === "" ? fallback : raw;
   };
@@ -68,7 +72,7 @@ export function readChartPalette(root: Element = document.documentElement, schem
 
   if (scheme !== undefined && scheme !== "default") {
     const table = PALETTE_SCHEMES[scheme];
-    const dark = root.getAttribute("data-theme") === "dark";
+    const dark = root?.getAttribute("data-theme") === "dark";
 
     series = dark ? table.dark : table.light;
   }
@@ -85,7 +89,9 @@ export function readChartPalette(root: Element = document.documentElement, schem
 
 /** 跟着 <html data-theme> 变：主题切换后图表要重画。scheme 变化同样触发重读。 */
 export function useChartPalette(scheme?: CardPaletteScheme): ChartPalette {
-  const [palette, setPalette] = useState<ChartPalette>(() => readChartPalette(document.documentElement, scheme));
+  // 缺省 root 由 readChartPalette 自己解析——SSR（node 测试环境）没有 document，
+  // 这里不能显式触碰它。
+  const [palette, setPalette] = useState<ChartPalette>(() => readChartPalette(undefined, scheme));
 
   useEffect(() => {
     const root = document.documentElement;

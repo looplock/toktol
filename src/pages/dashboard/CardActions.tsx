@@ -477,7 +477,9 @@ export function CardActions({
   // 外观开关按当前画法取：画法切换后抽屉里的开关行会跟着增减。
   const kindAppearance = appearance?.[config.chart] ?? appearance?.["default"] ?? {};
 
-  const drawer = createPortal(
+  // SSR（node 测试环境）没有 body：抽屉是打开后的浮层，首帧不存在也无需注水。
+  const drawer =
+    typeof document === "undefined" ? null : createPortal(
     <div
       ref={drawerRef}
       role="dialog"

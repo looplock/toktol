@@ -11,7 +11,9 @@ import {
   fetchUsageFilterOptions,
   fetchUsageRecords,
   type UsageFilters,
+  type UsageFilterOptionsPayload,
   type UsageRecordRow,
+  type UsageRecordsPage,
 } from "../lib/api";
 import {
   DataTable,
@@ -49,6 +51,10 @@ interface DetailsPageProps {
   readonly inputScope: InputScope;
   /** 点会话列：跳到会话页选中该会话（详情在会话页看，本页不再弹窗）。 */
   readonly onOpenSession: (focus: SessionFocus) => void;
+  /** 测试缝隙：注入首帧行页，跳过主查询的 IPC 拉取。 */
+  readonly initialRecords?: UsageRecordsPage;
+  /** 测试缝隙：注入首帧筛选选项。 */
+  readonly initialOptions?: UsageFilterOptionsPayload;
 }
 
 export function DetailsPage({
@@ -57,6 +63,8 @@ export function DetailsPage({
   scanVersion,
   inputScope,
   onOpenSession,
+  initialRecords,
+  initialOptions,
 }: DetailsPageProps) {
   // buildColumns 在组件外：跳会话页的回调经参数传入（setState 引用稳定）。
   const columns = useMemo<DataTableColumn<UsageRecordRow>[]>(
@@ -105,6 +113,7 @@ export function DetailsPage({
   // 时读 state）：deps 用 page，渲染层的 currentPage 钳位不变。
   const records = useInvokeQuery({
     deps: [filters, disabledTools, sort, page, pageSize, scanVersion],
+    ...(initialRecords === undefined ? {} : { initialData: initialRecords }),
     fetch: () => {
       const total = records.data?.total ?? 0;
       const current = Math.min(page, Math.max(1, Math.ceil(total / pageSize)));
@@ -129,6 +138,7 @@ export function DetailsPage({
   // 的错误另有提示）；分面口径——每个维度用其余筛选条件计数（后端拆分）。
   const facetQuery = useInvokeQuery({
     deps: [filters, disabledTools, scanVersion],
+    ...(initialOptions === undefined ? {} : { initialData: initialOptions }),
     fetch: () => fetchUsageFilterOptions(filters, disabledTools),
   });
   const options = facetQuery.data;
