@@ -503,26 +503,7 @@ fn block_from_value(value: &serde_json::Value) -> Vec<TranscriptBlock> {
         // 里的 dataUrl 被工具脱敏成占位串（"[dataUrl omitted …]"），不可
         // 渲染——真实 data URL 才走内嵌，否则取本地路径。两者都无（MCP
         // 工具图，source 只有占位名）不猜，Raw 兜底。
-        "image" => {
-            let source = obj.get("source").and_then(|v| v.as_object());
-            let placeholder = source
-                .and_then(|s| s.get("placeholder"))
-                .and_then(|v| v.as_str());
-            let url = obj.get("dataUrl").and_then(|v| v.as_str()).unwrap_or("");
-            if url.starts_with("data:image/") {
-                vec![image_data_block(url, placeholder)]
-            } else if let Some(path) = source.and_then(|s| s.get("path")).and_then(|v| v.as_str()) {
-                let size = source
-                    .and_then(|s| s.get("sizeBytes"))
-                    .and_then(|v| v.as_i64());
-                vec![image_block(path, placeholder, size)]
-            } else {
-                let json = serde_json::to_string(value).ok();
-                json.map(|json| TranscriptBlock::Raw { json })
-                    .into_iter()
-                    .collect()
-            }
-        }
+        "image" => image_blocks(value, obj),
         "thinking" | "reasoning" | "summary_text" => {
             let blocks = ["thinking", "text", "reasoning"]
                 .iter()
@@ -533,107 +514,159 @@ fn block_from_value(value: &serde_json::Value) -> Vec<TranscriptBlock> {
                 });
             blocks.into_iter().collect()
         }
-        "tool_use" | "toolCall" | "function_call" => {
-            let id = obj
-                .get("id")
-                .or_else(|| obj.get("call_id"))
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let name = obj.get("name").and_then(|v| v.as_str()).map(str::to_string);
-            let arguments = obj
-                .get("input")
-                .or_else(|| obj.get("arguments"))
-                .map(arguments_text);
-            vec![TranscriptBlock::ToolCall {
-                id,
-                name,
-                arguments,
-            }]
-        }
-        "tool_result" | "toolCallResult" | "function_call_result" => {
-            let call_id = ["tool_use_id", "call_id", "id"]
-                .iter()
-                .find_map(|key| obj.get(*key))
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let content = ["content", "output", "text"]
-                .iter()
-                .find_map(|key| obj.get(*key))
-                .map(value_text)
-                .unwrap_or_default();
-            let is_error = obj
-                .get("is_error")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            vec![TranscriptBlock::ToolResult {
-                call_id,
-                content,
-                is_error,
-            }]
-        }
+        "tool_use" | "toolCall" | "function_call" => tool_call_blocks(obj),
+        "tool_result" | "toolCallResult" | "function_call_result" => tool_result_blocks(obj),
         // opencode：调用与结果合记在一个 part（state.input / state.output），
         // 拆成 ToolCall + ToolResult 两块；没有 output（调用失败中断等）只留调用。
-        "tool" => {
-            let state = obj.get("state");
-            let mut blocks = vec![TranscriptBlock::ToolCall {
-                id: obj
-                    .get("callID")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-                name: obj.get("tool").and_then(|v| v.as_str()).map(str::to_string),
-                arguments: state.and_then(|s| s.get("input")).map(arguments_text),
-            }];
-            if let Some(output) = state
-                .and_then(|s| s.get("output"))
-                .and_then(|v| v.as_str())
-                .filter(|text| !text.is_empty())
-            {
-                blocks.push(TranscriptBlock::ToolResult {
-                    call_id: obj
-                        .get("callID")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string),
-                    content: output.to_string(),
-                    is_error: state.and_then(|s| s.get("status")).and_then(|v| v.as_str())
-                        == Some("error"),
-                });
-            }
-            blocks
-        }
+        "tool" => opencode_tool_blocks(obj),
         // opencode 粘贴/拖入的文件：图片以 data URL 内嵌，原样透传给前端渲染；
         // 非图片文件不猜内容，Raw 兜底。
-        "file" => {
-            let url = obj.get("url").and_then(|v| v.as_str()).unwrap_or("");
-            if url.starts_with("data:image/") {
-                vec![image_data_block(
-                    url,
-                    obj.get("filename").and_then(|v| v.as_str()),
-                )]
-            } else {
-                let json = serde_json::to_string(value).ok();
-                json.map(|json| TranscriptBlock::Raw { json })
-                    .into_iter()
-                    .collect()
-            }
-        }
+        "file" => file_blocks(value, obj),
         // opencode 的流式结构标记：step-start / step-finish（计费已在
         // message 级 tokens 里）、compaction（压缩边界）——无内容可展示。
         "step-start" | "step-finish" | "compaction" => vec![],
-        _ => {
-            if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
-                return (!text.is_empty())
-                    .then(|| TranscriptBlock::Text {
-                        text: text.to_string(),
-                    })
-                    .into_iter()
-                    .collect();
-            }
-            let json = serde_json::to_string(value)
-                .ok()
-                .map(|json| TranscriptBlock::Raw { json });
-            json.into_iter().collect()
-        }
+        _ => fallback_blocks(value, obj),
     }
+}
+
+/// zcode 的图片块：附件落盘在 image-cache，路径在 source.path；日志
+/// 里的 dataUrl 被工具脱敏成占位串（"[dataUrl omitted …]"），不可
+/// 渲染——真实 data URL 才走内嵌，否则取本地路径。两者都无（MCP
+/// 工具图，source 只有占位名）不猜，Raw 兜底。
+fn image_blocks(
+    value: &serde_json::Value,
+    obj: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<TranscriptBlock> {
+    let source = obj.get("source").and_then(|v| v.as_object());
+    let placeholder = source
+        .and_then(|s| s.get("placeholder"))
+        .and_then(|v| v.as_str());
+    let url = obj.get("dataUrl").and_then(|v| v.as_str()).unwrap_or("");
+    if url.starts_with("data:image/") {
+        vec![image_data_block(url, placeholder)]
+    } else if let Some(path) = source.and_then(|s| s.get("path")).and_then(|v| v.as_str()) {
+        let size = source
+            .and_then(|s| s.get("sizeBytes"))
+            .and_then(|v| v.as_i64());
+        vec![image_block(path, placeholder, size)]
+    } else {
+        let json = serde_json::to_string(value).ok();
+        json.map(|json| TranscriptBlock::Raw { json })
+            .into_iter()
+            .collect()
+    }
+}
+
+/// 工具调用块：`id`/`call_id`、`input`/`arguments` 字段名跨工具不同，都兜住。
+fn tool_call_blocks(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<TranscriptBlock> {
+    let id = obj
+        .get("id")
+        .or_else(|| obj.get("call_id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let name = obj.get("name").and_then(|v| v.as_str()).map(str::to_string);
+    let arguments = obj
+        .get("input")
+        .or_else(|| obj.get("arguments"))
+        .map(arguments_text);
+    vec![TranscriptBlock::ToolCall {
+        id,
+        name,
+        arguments,
+    }]
+}
+
+/// 工具结果块：call_id 在三种字段名里找；content/output/text 都可能是任意
+/// JSON 值，统一走 [`value_text`]。
+fn tool_result_blocks(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<TranscriptBlock> {
+    let call_id = ["tool_use_id", "call_id", "id"]
+        .iter()
+        .find_map(|key| obj.get(*key))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let content = ["content", "output", "text"]
+        .iter()
+        .find_map(|key| obj.get(*key))
+        .map(value_text)
+        .unwrap_or_default();
+    let is_error = obj
+        .get("is_error")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    vec![TranscriptBlock::ToolResult {
+        call_id,
+        content,
+        is_error,
+    }]
+}
+
+/// opencode：调用与结果合记在一个 part（state.input / state.output），
+/// 拆成 ToolCall + ToolResult 两块；没有 output（调用失败中断等）只留调用。
+fn opencode_tool_blocks(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<TranscriptBlock> {
+    let state = obj.get("state");
+    let mut blocks = vec![TranscriptBlock::ToolCall {
+        id: obj
+            .get("callID")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        name: obj.get("tool").and_then(|v| v.as_str()).map(str::to_string),
+        arguments: state.and_then(|s| s.get("input")).map(arguments_text),
+    }];
+    if let Some(output) = state
+        .and_then(|s| s.get("output"))
+        .and_then(|v| v.as_str())
+        .filter(|text| !text.is_empty())
+    {
+        blocks.push(TranscriptBlock::ToolResult {
+            call_id: obj
+                .get("callID")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            content: output.to_string(),
+            is_error: state.and_then(|s| s.get("status")).and_then(|v| v.as_str()) == Some("error"),
+        });
+    }
+    blocks
+}
+
+/// opencode 粘贴/拖入的文件：图片以 data URL 内嵌，原样透传给前端渲染；
+/// 非图片文件不猜内容，Raw 兜底。
+fn file_blocks(
+    value: &serde_json::Value,
+    obj: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<TranscriptBlock> {
+    let url = obj.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    if url.starts_with("data:image/") {
+        vec![image_data_block(
+            url,
+            obj.get("filename").and_then(|v| v.as_str()),
+        )]
+    } else {
+        let json = serde_json::to_string(value).ok();
+        json.map(|json| TranscriptBlock::Raw { json })
+            .into_iter()
+            .collect()
+    }
+}
+
+/// 未识别 kind 的兜底：带非空 `text` 字段按文本透传，否则整块 Raw 留档——
+/// 未认识的日志格式宁可原样展示也不丢内容。
+fn fallback_blocks(
+    value: &serde_json::Value,
+    obj: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<TranscriptBlock> {
+    if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
+        return (!text.is_empty())
+            .then(|| TranscriptBlock::Text {
+                text: text.to_string(),
+            })
+            .into_iter()
+            .collect();
+    }
+    let json = serde_json::to_string(value)
+        .ok()
+        .map(|json| TranscriptBlock::Raw { json });
+    json.into_iter().collect()
 }
 
 /// 文本块归一：整块是图片路径标签 / zcode 图片引用 → Image；否则原样成 Text。

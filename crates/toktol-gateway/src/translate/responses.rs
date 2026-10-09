@@ -739,6 +739,212 @@ impl AnthropicToResponsesStream {
             "output_tokens_details": {"reasoning_tokens": Value::Null},
         })
     }
+
+    /// `response.completed` 载荷；feed 的 message_stop 与断流兜底 finish 共用一份。
+    fn completed_json(&self) -> Value {
+        json!({
+            "type": "response.completed",
+            "response": {
+                "id": format!("resp_toktol_{}", super::unix_now()),
+                "object": "response",
+                "status": "completed",
+                "model": self.model,
+                "usage": self.usage_json(),
+            },
+        })
+    }
+
+    /// 起手：登记模型与输入侧用量后补发 created；重复 message_start 幂等忽略。
+    fn feed_message_start(&mut self, event_value: &Value, out: &mut Vec<String>) {
+        if self.created {
+            return;
+        }
+        self.created = true;
+        if let Some(model) = event_value
+            .pointer("/message/model")
+            .and_then(Value::as_str)
+        {
+            self.model = model.to_string();
+        }
+        if let Some(usage) = event_value.pointer("/message/usage") {
+            self.input_tokens = usage
+                .get("input_tokens")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            self.cache_read = usage
+                .get("cache_read_input_tokens")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            self.cache_write = usage
+                .get("cache_creation_input_tokens")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+        }
+        out.push(created_event(&self.model));
+    }
+
+    /// 开块：文本/工具调用各建一个 output item；thinking 块不产出事件也不占 output 位
+    /// （模块文档取舍），但仍要在 `blocks` 里登记以吃掉后续 delta。
+    fn feed_block_start(&mut self, event_value: &Value, out: &mut Vec<String>) {
+        let block = event_value
+            .get("index")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        let block_type = event_value
+            .pointer("/content_block/type")
+            .and_then(Value::as_str)
+            .unwrap_or("text");
+        let output_index = self.next_output;
+        self.next_output += 1;
+        let (response_type, item) = match block_type {
+            "tool_use" => (
+                "function_call",
+                json!({
+                    "type": "function_call",
+                    "id": event_value.pointer("/content_block/id"),
+                    "call_id": event_value.pointer("/content_block/id"),
+                    "name": event_value.pointer("/content_block/name"),
+                    "arguments": "",
+                }),
+            ),
+            _ => (
+                "message",
+                json!({
+                    "type": "message",
+                    "id": format!("msg_{}", super::unix_now()),
+                    "role": "assistant",
+                    "content": [],
+                }),
+            ),
+        };
+        self.blocks.insert(
+            block,
+            BlockState {
+                output_index,
+                kind: response_type.to_string(),
+                call_id: item
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                name: item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                text: String::new(),
+                arguments: String::new(),
+                done: false,
+            },
+        );
+        if response_type == "message" || block_type == "tool_use" {
+            out.push(event(
+                "response.output_item.added",
+                json!({
+                    "type": "response.output_item.added",
+                    "output_index": output_index,
+                    "item": item,
+                }),
+            ));
+        }
+    }
+
+    /// 块内增量：文本走 output_text.delta，工具参数走 function_call_arguments.delta；
+    /// thinking_delta / signature_delta 丢弃。
+    fn feed_block_delta(&mut self, event_value: &Value, out: &mut Vec<String>) {
+        let block = event_value
+            .get("index")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        let delta_type = event_value
+            .pointer("/delta/type")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        match delta_type {
+            "text_delta" => {
+                let text = event_value
+                    .pointer("/delta/text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if let Some(state) = self.blocks.get_mut(&block) {
+                    state.text.push_str(text);
+                    out.push(event(
+                        "response.output_text.delta",
+                        json!({
+                            "type": "response.output_text.delta",
+                            "output_index": state.output_index,
+                            "content_index": 0,
+                            "delta": text,
+                        }),
+                    ));
+                }
+            }
+            "input_json_delta" => {
+                let partial = event_value
+                    .pointer("/delta/partial_json")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if let Some(state) = self.blocks.get_mut(&block) {
+                    state.arguments.push_str(partial);
+                    out.push(event(
+                        "response.function_call_arguments.delta",
+                        json!({
+                            "type": "response.function_call_arguments.delta",
+                            "output_index": state.output_index,
+                            "delta": partial,
+                        }),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// 收块：每个块只发一次 output_item.done（`done` 旗标幂等）。
+    fn feed_block_stop(&mut self, event_value: &Value, out: &mut Vec<String>) {
+        let block = event_value
+            .get("index")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        if let Some(state) = self.blocks.get_mut(&block)
+            && !state.done
+        {
+            state.done = true;
+            let item = if state.kind == "function_call" {
+                json!({
+                    "type": "function_call",
+                    "id": state.call_id,
+                    "call_id": state.call_id,
+                    "name": state.name,
+                    "arguments": state.arguments,
+                })
+            } else {
+                json!({
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": state.text}],
+                })
+            };
+            out.push(event(
+                "response.output_item.done",
+                json!({
+                    "type": "response.output_item.done",
+                    "output_index": state.output_index,
+                    "item": item,
+                }),
+            ));
+        }
+    }
+
+    /// 收尾用量：只更新输出 token（输入侧在 message_start 已定）。
+    fn feed_message_delta(&mut self, event_value: &Value) {
+        if let Some(usage) = event_value.get("usage") {
+            self.output_tokens = usage
+                .get("output_tokens")
+                .and_then(Value::as_i64)
+                .unwrap_or(self.output_tokens);
+        }
+    }
 }
 
 impl Default for AnthropicToResponsesStream {
@@ -758,202 +964,12 @@ impl super::StreamTranslator for AnthropicToResponsesStream {
             .unwrap_or("");
         let mut out = Vec::new();
         match kind {
-            "message_start" => {
-                if !self.created {
-                    self.created = true;
-                    if let Some(model) = event_value
-                        .pointer("/message/model")
-                        .and_then(Value::as_str)
-                    {
-                        self.model = model.to_string();
-                    }
-                    if let Some(usage) = event_value.pointer("/message/usage") {
-                        self.input_tokens = usage
-                            .get("input_tokens")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(0);
-                        self.cache_read = usage
-                            .get("cache_read_input_tokens")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(0);
-                        self.cache_write = usage
-                            .get("cache_creation_input_tokens")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(0);
-                    }
-                    out.push(created_event(&self.model));
-                }
-            }
-            "content_block_start" => {
-                let block = event_value
-                    .get("index")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as usize;
-                let block_type = event_value
-                    .pointer("/content_block/type")
-                    .and_then(Value::as_str)
-                    .unwrap_or("text");
-                let output_index = self.next_output;
-                self.next_output += 1;
-                let (response_type, item) = match block_type {
-                    "tool_use" => (
-                        "function_call",
-                        json!({
-                            "type": "function_call",
-                            "id": event_value.pointer("/content_block/id"),
-                            "call_id": event_value.pointer("/content_block/id"),
-                            "name": event_value.pointer("/content_block/name"),
-                            "arguments": "",
-                        }),
-                    ),
-                    _ => (
-                        "message",
-                        json!({
-                            "type": "message",
-                            "id": format!("msg_{}", super::unix_now()),
-                            "role": "assistant",
-                            "content": [],
-                        }),
-                    ),
-                };
-                self.blocks.insert(
-                    block,
-                    BlockState {
-                        output_index,
-                        kind: response_type.to_string(),
-                        call_id: item
-                            .get("call_id")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string(),
-                        name: item
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string(),
-                        text: String::new(),
-                        arguments: String::new(),
-                        done: false,
-                    },
-                );
-                // thinking 块不产出 Responses 事件（模块文档取舍），也不占 output 位。
-                if response_type == "message" || block_type == "tool_use" {
-                    out.push(event(
-                        "response.output_item.added",
-                        json!({
-                            "type": "response.output_item.added",
-                            "output_index": output_index,
-                            "item": item,
-                        }),
-                    ));
-                }
-            }
-            "content_block_delta" => {
-                let block = event_value
-                    .get("index")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as usize;
-                let delta_type = event_value
-                    .pointer("/delta/type")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                match delta_type {
-                    "text_delta" => {
-                        let text = event_value
-                            .pointer("/delta/text")
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        if let Some(state) = self.blocks.get_mut(&block) {
-                            state.text.push_str(text);
-                            out.push(event(
-                                "response.output_text.delta",
-                                json!({
-                                    "type": "response.output_text.delta",
-                                    "output_index": state.output_index,
-                                    "content_index": 0,
-                                    "delta": text,
-                                }),
-                            ));
-                        }
-                    }
-                    "input_json_delta" => {
-                        let partial = event_value
-                            .pointer("/delta/partial_json")
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        if let Some(state) = self.blocks.get_mut(&block) {
-                            state.arguments.push_str(partial);
-                            out.push(event(
-                                "response.function_call_arguments.delta",
-                                json!({
-                                    "type": "response.function_call_arguments.delta",
-                                    "output_index": state.output_index,
-                                    "delta": partial,
-                                }),
-                            ));
-                        }
-                    }
-                    // thinking_delta / signature_delta 丢弃。
-                    _ => {}
-                }
-            }
-            "content_block_stop" => {
-                let block = event_value
-                    .get("index")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as usize;
-                if let Some(state) = self.blocks.get_mut(&block)
-                    && !state.done
-                {
-                    state.done = true;
-                    let item = if state.kind == "function_call" {
-                        json!({
-                            "type": "function_call",
-                            "id": state.call_id,
-                            "call_id": state.call_id,
-                            "name": state.name,
-                            "arguments": state.arguments,
-                        })
-                    } else {
-                        json!({
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [{"type": "output_text", "text": state.text}],
-                        })
-                    };
-                    out.push(event(
-                        "response.output_item.done",
-                        json!({
-                            "type": "response.output_item.done",
-                            "output_index": state.output_index,
-                            "item": item,
-                        }),
-                    ));
-                }
-            }
-            "message_delta" => {
-                if let Some(usage) = event_value.get("usage") {
-                    self.output_tokens = usage
-                        .get("output_tokens")
-                        .and_then(Value::as_i64)
-                        .unwrap_or(self.output_tokens);
-                }
-            }
-            "message_stop" => {
-                out.push(event(
-                    "response.completed",
-                    json!({
-                        "type": "response.completed",
-                        "response": {
-                            "id": format!("resp_toktol_{}", super::unix_now()),
-                            "object": "response",
-                            "status": "completed",
-                            "model": self.model,
-                            "usage": self.usage_json(),
-                        },
-                    }),
-                ));
-            }
+            "message_start" => self.feed_message_start(&event_value, &mut out),
+            "content_block_start" => self.feed_block_start(&event_value, &mut out),
+            "content_block_delta" => self.feed_block_delta(&event_value, &mut out),
+            "content_block_stop" => self.feed_block_stop(&event_value, &mut out),
+            "message_delta" => self.feed_message_delta(&event_value),
+            "message_stop" => out.push(event("response.completed", self.completed_json())),
             _ => {}
         }
         out
@@ -963,19 +979,7 @@ impl super::StreamTranslator for AnthropicToResponsesStream {
         // 上游断流未发 message_stop 的兜底：补 completed。
         if self.created {
             self.created = false;
-            vec![event(
-                "response.completed",
-                json!({
-                    "type": "response.completed",
-                    "response": {
-                        "id": format!("resp_toktol_{}", super::unix_now()),
-                        "object": "response",
-                        "status": "completed",
-                        "model": self.model,
-                        "usage": self.usage_json(),
-                    },
-                }),
-            )]
+            vec![event("response.completed", self.completed_json())]
         } else {
             vec![]
         }
