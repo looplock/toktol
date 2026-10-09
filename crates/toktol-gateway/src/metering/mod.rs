@@ -69,3 +69,115 @@ pub fn record(db_path: &Path, facts: MeterFacts) {
         eprintln!("toktol-gateway: metering open failed: {err}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// 独占临时目录里的库路径；Drop 时连目录一起清掉。
+    struct TempDb(PathBuf);
+
+    impl TempDb {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "toktol-metering-{tag}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&dir).expect("创建临时目录");
+            Self(dir.join("toktol.db"))
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDb {
+        fn drop(&mut self) {
+            if let Some(dir) = self.0.parent() {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+
+    fn facts(ts: i64) -> MeterFacts {
+        MeterFacts {
+            ts,
+            model_raw: "raw-test-model".into(),
+            model: "canonical-test-model".into(),
+            usage: TokenUsage {
+                input_tokens: 10,
+                output_tokens: 20,
+                cache_read_tokens: 5,
+                cache_write_tokens: 0,
+                reasoning_tokens: Some(8),
+            },
+            status_code: Some(200),
+            latency_ms: 42,
+            upstream: "upstream-a".into(),
+            token_hash: [7u8; 32],
+        }
+    }
+
+    /// 全新库路径上首次落库即成功：record 自带开库建 schema（重试注释里
+    /// "首个连接建 schema"的契约），行内容与入参一致；未定价模型的成本列
+    /// 为 NULL——"不发明数字"的红线在网关计量侧同样成立。
+    #[test]
+    fn record_builds_schema_and_writes_usage_on_fresh_db() {
+        let db = TempDb::new("fresh");
+        record(db.path(), facts(1000));
+
+        let storage = storage::open(db.path()).expect("record 应已建好 schema");
+        let page = storage.gateway_requests_page(0, 10).unwrap();
+        assert_eq!(page.total, 1);
+        let row = &page.rows[0];
+        assert_eq!(row.model_raw, "raw-test-model");
+        assert_eq!(row.input_tokens, 10);
+        assert_eq!(row.output_tokens, 20);
+        assert_eq!(row.status_code, Some(200));
+        assert_eq!(row.latency_ms, Some(42));
+        assert_eq!(row.upstream.as_deref(), Some("upstream-a"));
+        assert_eq!(row.cost_micros, None, "未定价模型不得编造成本");
+    }
+
+    /// 每次调用一行：网关计量没有 dedup 概念（dedup_key 是扫描侧的），
+    /// 两次 record 必须两行——漏写成 upsert 会静默少计请求量。
+    #[test]
+    fn record_appends_one_row_per_call() {
+        let db = TempDb::new("append");
+        record(db.path(), facts(1000));
+        record(db.path(), facts(2000));
+
+        let storage = storage::open(db.path()).unwrap();
+        let page = storage.gateway_requests_page(0, 10).unwrap();
+        assert_eq!(page.total, 2);
+        assert_eq!(page.rows[0].ts, 2000, "按时间倒序");
+    }
+
+    /// 开库失败把重试轮走完仍静默返回：计量发生在响应回传之后，失败不
+    /// 传播、不 panic——宁可漏一行统计（见 record 文档）。db 路径的父级
+    /// 是普通文件，SQLite 无法在该路径建库，三次尝试必然全败。
+    #[test]
+    fn record_silently_survives_unopenable_db() {
+        let dir = std::env::temp_dir().join(format!(
+            "toktol-metering-block-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("创建临时目录");
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, b"not a directory").unwrap();
+
+        record(&blocker.join("inner.db"), facts(1000));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
