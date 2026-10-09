@@ -576,7 +576,10 @@ async fn proxy(
         // 照常计量；错误体在协议一致的入站方向原样透传，跨协议时换成入站的
         // error 信封（状态码保留，消息与类型从上游错误体尽力提取）。
         let body_bytes = upstream_response.bytes().await.unwrap_or_default();
-        meter.record(None, status);
+        // 计量含 SQLite 开库与迁移，是阻塞调用——spawn_blocking 让出 worker 线程。
+        tokio::task::spawn_blocking(move || meter.record(None, status))
+            .await
+            .ok();
         let status = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
         if !translating {
             return (status, body_bytes).into_response();
@@ -612,7 +615,11 @@ async fn proxy(
         } else {
             body_bytes.to_vec()
         };
-        meter.record(usage, status);
+        // 计量含 SQLite 开库与迁移，是阻塞调用——spawn_blocking 让出 worker 线程
+        // （与下方流式路径同款）。
+        tokio::task::spawn_blocking(move || meter.record(usage, status))
+            .await
+            .ok();
         return (
             StatusCode::OK,
             [(header::CONTENT_TYPE, "application/json")],

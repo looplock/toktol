@@ -34,6 +34,9 @@ pub struct MeterFacts {
 ///
 /// 带少量重试：全新库上首个连接要建 schema，`PRAGMA journal_mode=WAL` 在其它连接
 /// 正开着库时会短暂 BUSY（busy_timeout 对 journal_mode 变更不总生效），重试即可越过。
+///
+/// **阻塞调用**：开库含完整迁移与 WAL 协商，最坏带 3×50ms 重试——绝不能在
+/// async 上下文直接调用（会占死 tokio worker 线程），调用方必须 `spawn_blocking`。
 pub fn record(db_path: &Path, facts: MeterFacts) {
     let mut open_error = None;
     for _ in 0..3 {
