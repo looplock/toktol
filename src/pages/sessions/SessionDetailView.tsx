@@ -53,6 +53,9 @@ interface ReadyTranscript {
 
 /** 每次向前/向后拉取的条目数。 */
 const TRANSCRIPT_PAGE_SIZE = 80;
+/** 无限滚动的窗口上限：补页后超出即裁掉远离视口的一端——长会话单向浏览
+ * 的条目数组与 DOM 不再无界增长。3 页：视口上/下各留足预读余量。 */
+const TRANSCRIPT_WINDOW_MAX = TRANSCRIPT_PAGE_SIZE * 3;
 /** 建站进度事件（壳广播，按会话过滤）。 */
 const TRANSCRIPT_PROGRESS_EVENT = "transcript://progress";
 
@@ -341,12 +344,30 @@ export function SessionDetailView({
     [state, jumpToSeq],
   );
 
-  // 无限滚动：向前/向后补页。向前补页会平移滚动锚点，补页后按高度差回位。
+  // 无限滚动：向前/向后补页。向前补页会平移滚动锚点，补页后按偏移差回位；
+  // 窗口超上限时裁掉远离视口的一端。
   const loadingMoreRef = useRef(false);
   // 窗口代号：换窗跳转发起时自增；补页请求携带发起时的代号，返回时对不上
   // 即丢弃（跳转已换窗，旧补页合进去会产生重复乱序的 entries）。
   const windowGenRef = useRef(0);
-  const prependAnchorRef = useRef<{ prevHeight: number; prevFirst: number } | null>(null);
+  // 向前补页的回位锚点：视口位置 + 旧首条元素的偏移。回位量 = 提交后旧首条
+  // （现位于 prepended 下标处）与旧位置的偏移差——比 scrollHeight 差值稳健：
+  // 尾部窗口裁剪不改变上方内容的偏移，却会污染高度差。prepended 在补页
+  // 返回时置位；合并被连续性检查拒绝时窗口首条不变，回位守卫会跳过。
+  const prependAnchorRef = useRef<{
+    scrollTop: number;
+    firstTop: number;
+    prevFirst: number;
+    prepended: number | null;
+  } | null>(null);
+  // 向后补页触发头部裁剪时的回位锚点：裁剪发生在视口上方，视口按偏移差
+  // 上移。expectedFirst 核对合并是否真的落地（被连续性检查拒绝时不补偿，
+  // 锚点由下一次提交消费——没有提交就由该守卫安全丢弃）。
+  const headTrimRef = useRef<{
+    scrollTop: number;
+    removed: number;
+    expectedFirst: number;
+  } | null>(null);
   // 已加载到会话底后的探新冷却：滚动事件高频，2s 内不重复探测。
   const lastProbeRef = useRef(0);
 
@@ -416,6 +437,27 @@ export function SessionDetailView({
           }
           return undefined;
         }
+        // 窗口上限：底部补页若使窗口超限，裁掉头部（远离视口端）。裁剪在
+        // 视口上方，须在提交前测好补偿锚点（引用旧 DOM）；是否生效由
+        // useLayoutEffect 按预期新首条核对——合并被连续性检查拒绝时不补偿。
+        const trimCount = entries.length + page.entries.length - TRANSCRIPT_WINDOW_MAX;
+        let headTrim: {
+          scrollTop: number;
+          removed: number;
+          expectedFirst: number;
+        } | null = null;
+        if (trimCount > 0) {
+          const el = streamRef.current;
+          const newFirst = itemRefs.current[trimCount];
+          const oldFirst = itemRefs.current[0];
+          if (el !== null && newFirst != null && oldFirst != null) {
+            headTrim = {
+              scrollTop: el.scrollTop,
+              removed: newFirst.offsetTop - oldFirst.offsetTop,
+              expectedFirst: entries[trimCount]?.seq ?? -1,
+            };
+          }
+        }
         setState((current) => {
           if (current.kind !== "ready") return current;
           const curLast = current.data.entries[current.data.entries.length - 1];
@@ -438,10 +480,14 @@ export function SessionDetailView({
             data: {
               turns: current.data.turns,
               total: page.total,
-              entries: appended,
+              entries:
+                appended.length > TRANSCRIPT_WINDOW_MAX
+                  ? appended.slice(appended.length - TRANSCRIPT_WINDOW_MAX)
+                  : appended,
             },
           };
         });
+        headTrimRef.current = headTrim;
         refreshTurns();
         return undefined;
       })
@@ -464,7 +510,12 @@ export function SessionDetailView({
     if (first === undefined || first.seq === 0) return;
     const el = streamRef.current;
     if (el !== null) {
-      prependAnchorRef.current = { prevHeight: el.scrollHeight, prevFirst: first.seq };
+      prependAnchorRef.current = {
+        scrollTop: el.scrollTop,
+        firstTop: itemRefs.current[0]?.offsetTop ?? 0,
+        prevFirst: first.seq,
+        prepended: null,
+      };
     }
     const gen = windowGenRef.current;
     loadingMoreRef.current = true;
@@ -475,6 +526,10 @@ export function SessionDetailView({
           prependAnchorRef.current = null;
           return undefined;
         }
+        // 乐观置位补页数：回位按"旧首条新下标"取元素。合并是否成立由
+        // updater 的连续性检查定——被拒时窗口首条不变，回位守卫会跳过。
+        const anchor = prependAnchorRef.current;
+        if (anchor !== null) anchor.prepended = page.entries.length;
         setState((current) => {
           if (current.kind !== "ready") return current;
           const curFirst = current.data.entries[0];
@@ -484,12 +539,18 @@ export function SessionDetailView({
           if (curFirst === undefined || lastFetched?.seq !== curFirst.seq - 1) {
             return current;
           }
+          const merged = [...page.entries, ...current.data.entries];
           return {
             kind: "ready",
             data: {
               turns: current.data.turns,
               total: current.data.total,
-              entries: [...page.entries, ...current.data.entries],
+              // 窗口上限：顶部补页后裁掉远端（尾部）。视口在顶部，无感；
+              // 也不影响回位补偿——锚点按元素偏移差计算，与尾部裁剪正交。
+              entries:
+                merged.length > TRANSCRIPT_WINDOW_MAX
+                  ? merged.slice(0, TRANSCRIPT_WINDOW_MAX)
+                  : merged,
             },
           };
         });
@@ -502,17 +563,35 @@ export function SessionDetailView({
       });
   }, [state, row]);
 
-  // 向前补页后：新内容插在上方，滚动位置按高度差平移，视觉上"原地不动"。
+  // 向前补页后：新内容插在上方，按旧首条元素提交前后的偏移差平移视口，
+  // 视觉上"原地不动"。prepended 未置位说明补页在途（期间可能有 turns
+  // 刷新的提交），锚点留着不消费；合并被连续性检查拒绝时窗口首条不变，
+  // 守卫直接跳过并清锚。
   useLayoutEffect(() => {
     if (state.kind !== "ready") return;
     const el = streamRef.current;
     const anchor = prependAnchorRef.current;
-    if (el === null || anchor === null) return;
-    const first = state.data.entries[0]?.seq;
-    if (first !== undefined && first < anchor.prevFirst) {
-      el.scrollTop += el.scrollHeight - anchor.prevHeight;
-    }
+    if (el === null || anchor === null || anchor.prepended === null) return;
     prependAnchorRef.current = null;
+    const first = state.data.entries[0]?.seq;
+    if (first === undefined || first >= anchor.prevFirst) return;
+    const restored = itemRefs.current[anchor.prepended];
+    if (restored !== null && restored !== undefined) {
+      el.scrollTop = anchor.scrollTop + (restored.offsetTop - anchor.firstTop);
+    }
+  }, [state]);
+
+  // 向后补页触发头部裁剪后：视口上方少了 removed 像素，视口上移同量保持
+  // 画面不动。合并被连续性检查拒绝时没有新提交，锚点由下一次提交消费——
+  // expectedFirst 核对保证那种情况下不误补偿（窗口首条与预期不符即丢弃）。
+  useLayoutEffect(() => {
+    if (state.kind !== "ready") return;
+    const el = streamRef.current;
+    const anchor = headTrimRef.current;
+    if (el === null || anchor === null) return;
+    headTrimRef.current = null;
+    if (state.data.entries[0]?.seq !== anchor.expectedFirst) return;
+    el.scrollTop = anchor.scrollTop - anchor.removed;
   }, [state]);
 
   useEffect(() => {

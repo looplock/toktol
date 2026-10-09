@@ -92,7 +92,10 @@ export const OutlineList = forwardRef<OutlineListHandle, OutlineListProps>(
               }}
               type="button"
               onClick={() => onJump(index)}
-              className={`flex w-full cursor-pointer items-baseline gap-1.5 border-l-2 px-3 py-1.5 text-left text-xs transition-colors ${LIST_IDLE.join(" ")}`}
+              // content-visibility：屏外行跳过布局与绘制——目录是全量轮次
+              // 列表，大会话数千行时这是无虚拟化前提下唯一的渲染护栏；
+              // 行高单行截断近似 32px，auto 关键字让浏览器记住真实行高。
+              className={`flex w-full cursor-pointer items-baseline gap-1.5 border-l-2 px-3 py-1.5 text-left text-xs transition-colors [content-visibility:auto] [contain-intrinsic-size:auto_32px] ${LIST_IDLE.join(" ")}`}
             >
               <span className="shrink-0 tabular-nums">{index + 1}.</span>
               <span className="min-w-0 truncate">{item.snippet}</span>
