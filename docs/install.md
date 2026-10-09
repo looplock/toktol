@@ -28,7 +28,7 @@
 终端用户可以直接放行隔离标记：
 
 ```bash
-xattr -cr /Applications/Toktol.app   # TODO: 确认产物 .app 名称后修正
+xattr -cr /Applications/Toktol.app
 ```
 
 ## 核对下载文件（SHA256）
@@ -40,8 +40,11 @@ GitHub 对每个 release 产物自动计算并展示 SHA-256 摘要（上传时�
 # Windows (PowerShell)
 Get-FileHash .\Toktol_0.1.0_x64-setup.exe -Algorithm SHA256
 
-# macOS / Linux
-shasum -a 256 Toktol_0.1.0_x64.app.tar.gz
+# macOS
+shasum -a 256 Toktol_0.1.0_aarch64.dmg
+
+# Linux
+shasum -a 256 Toktol_0.1.0_amd64.AppImage
 ```
 
 本地输出与页面上的摘要一致，即下载完整、未在传输途中被篡改。校验和解决的是
@@ -56,8 +59,10 @@ pnpm install
 pnpm tauri build
 ```
 
-产物在各平台的 `src-tauri/target/release/bundle/` 下，打包格式与发布工作流一致
-（见 README 的发布一节）。
+产物在仓库根的 `target/release/bundle/` 下。本地构建按宿主平台产出全部原生
+格式（Windows：NSIS + MSI；macOS：.app + .dmg；Linux：deb + AppImage + rpm）；
+发布产物的精确清单由 release 工作流的 `--bundles` 逐平台钉死
+（Windows：NSIS；macOS：.app + .dmg；Linux：AppImage + deb）。
 
 ## 隐私重申
 

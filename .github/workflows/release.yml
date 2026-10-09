@@ -1,7 +1,7 @@
 name: Release
 
 # 发布线：推 v* tag 触发——先校验版本三处一致 + tag 匹配，再三平台并行构建，汇总 Draft Release。
-# 陷阱：tauri.conf.json 的 bundle.targets 只写了 nsis，各平台实际产物由这里的 --bundles 覆盖。
+# 分工：bundle.targets "all" 只管本地构建（宿主原生格式）；发布产物清单由 --bundles 在此钉死。
 on:
   push:
     tags: ["v*"]
