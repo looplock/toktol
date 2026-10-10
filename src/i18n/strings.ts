@@ -134,6 +134,10 @@ const zhCN = {
   legendNone: "无",
   legendLess: "少",
   legendMore: "多",
+  // 日历卡坐标标签：日为周日起头的逗号分隔（ECharts dayLabel.nameMap 按 0=周日索引），
+  // 月为 1~12 月。逗号分隔串在卡片里 split——strings 表只放纯字符串。
+  calendarDayLabels: "日,一,二,三,四,五,六",
+  calendarMonthLabels: "1月,2月,3月,4月,5月,6月,7月,8月,9月,10月,11月,12月",
   comboViewCalls: "调用 × 累计",
   comboViewCost: "费用 × 调用",
   cardSankey: "用量流向",
@@ -713,6 +717,9 @@ const enUS: Strings = {
   legendNone: "None",
   legendLess: "Less",
   legendMore: "More",
+  // Calendar axis labels: days are Sunday-first (ECharts dayLabel.nameMap indexes 0 = Sunday), months 1-12. Split on "," in the card — the strings table holds plain strings only.
+  calendarDayLabels: "Sun,Mon,Tue,Wed,Thu,Fri,Sat",
+  calendarMonthLabels: "Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec",
   comboViewCalls: "Calls × cumulative",
   comboViewCost: "Cost × calls",
   cardSankey: "Usage flow",

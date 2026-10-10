@@ -658,14 +658,19 @@ async fn proxy(
                             .await
                             .is_err()
                         {
-                            return; // 客户端断开，计量在循环外照做。
+                            // 客户端断开：不再向它转发，但跳出循环继续走收尾，
+                            // 计量在循环外照做（这里是流式计量的唯一落库点）。
+                            break;
                         }
+                    }
+                    if tx.is_closed() {
+                        break;
                     }
                 }
             }
             // 透传模式原样转发字节；转换模式只发翻译产物。
             if translator.is_none() && tx.send(bytes.to_vec()).await.is_err() {
-                return;
+                break; // 同上：断开只停转发，计量照做。
             }
         }
         for payload in scanner.finish() {

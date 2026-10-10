@@ -109,12 +109,20 @@ impl Storage {
         // 窗口端点：显式筛选优先；"不限时间"回落数据的 MIN/MAX（上界再与现在取大，
         // 兜住时钟误差导致的时间戳落到未来）。
         let start = filters.time_start.unwrap_or(min_ts);
-        let end = filters.time_end.unwrap_or(max_ts.max(now_ms()));
+        // 脏时间戳防线（生成前）：适配器溢出侧的超大 ts 若流入 end，桶序列的
+        // 生成本身就可能天文级循环甚至死循环（bucket_starts 的 400 桶防线在
+        // 生成之后才生效）。上界夹到 now + 1 年——真实数据不可能落在那里；
+        // 下界不早于 start 保持窗口合法。越界数据本就不该有趋势桶。
+        let end = filters
+            .time_end
+            .unwrap_or(max_ts.max(now_ms()))
+            .min(now_ms().saturating_add(365 * 86_400_000))
+            .max(start);
         let grain = trend_grain(end.saturating_sub(start));
         // 脏时间戳（如落在 1970 的记录）会把"不限时间"撑成上千桶：趋势放弃，
         // 其余切片照常（它们按维度聚合，规模有界）。
         let starts = bucket_starts(start, end, grain);
-        let starts = if starts.len() > 400 {
+        let starts = if starts.len() > MAX_TREND_BUCKETS {
             Vec::new()
         } else {
             starts
@@ -622,9 +630,14 @@ fn floor_local_ms(ms: i64, grain: TrendGrain) -> i64 {
     }
 }
 
+/// 桶数硬上限（与 dashboard 的 400 桶防线同值）。必须在"生成过程中"生效：
+/// 脏端点下 Month 分支的年份递增、Hour/Day 的 epoch 步进都可能远超有意义的
+/// 桶数，不能等生成完再丢弃。
+const MAX_TREND_BUCKETS: usize = 400;
+
 /// 覆盖 [start, end] 的桶起点序列（本地对齐，严格递增）。窗口倒挂返回空。
 /// DST 回拨可能把相邻两步 floor 到同一墙钟：去重而非重复。
-fn bucket_starts(start_ms: i64, end_ms: i64, grain: TrendGrain) -> Vec<i64> {
+pub(super) fn bucket_starts(start_ms: i64, end_ms: i64, grain: TrendGrain) -> Vec<i64> {
     let last = floor_local_ms(end_ms, grain);
     let mut out: Vec<i64> = Vec::new();
 
@@ -634,6 +647,9 @@ fn bucket_starts(start_ms: i64, end_ms: i64, grain: TrendGrain) -> Vec<i64> {
         };
         let (mut y, mut m) = (dt.year(), dt.month());
         loop {
+            if out.len() > MAX_TREND_BUCKETS {
+                return out;
+            }
             let start = local_ms(y, m, 1, 0, 0);
             if start > last {
                 break;
@@ -660,6 +676,14 @@ fn bucket_starts(start_ms: i64, end_ms: i64, grain: TrendGrain) -> Vec<i64> {
     };
     let mut cursor = floor_local_ms(start_ms, grain);
     while cursor <= last {
+        // floor 解析不了的游标（越界脏值，floor 返回原值）直接终止：
+        // 不然从 i64 边界一路步进到 last 是天文级循环。
+        if Local.timestamp_millis_opt(cursor).single().is_none() {
+            break;
+        }
+        if out.len() > MAX_TREND_BUCKETS {
+            return out;
+        }
         if out.last().is_none_or(|prev| *prev < cursor) {
             out.push(cursor);
         }

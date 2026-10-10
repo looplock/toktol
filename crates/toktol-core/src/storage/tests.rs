@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::overview::{TrendGrain, union_duration_ms};
+use super::overview::{TrendGrain, bucket_starts, union_duration_ms};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{Datelike, Local, TimeZone};
@@ -2622,6 +2622,53 @@ fn marking_file_missing_clears_its_transcript_index() {
 
     drop(storage);
     cleanup(&path);
+}
+
+/// 脏端点不再挂死分桶：Month 分支的年份递增、Hour/Day 的 epoch 步进都被桶数
+/// 硬上限 / 不可解析游标终止拦住。旧实现在 end 越过 chrono 表示域（约 8.2e15 ms）
+/// 后 Month 分支 y 递增越过 262143、local_ms 恒 0，永不 break；Hour/Day 从
+/// 不可解析的 start 一路步进到 last 是天文级循环。
+#[test]
+fn bucket_starts_is_capped_on_dirty_endpoints() {
+    // Month 真死循环场景：end 超出 chrono 可表示范围（floor 原样返回）。
+    let dirty_end = 9_000_000_000_000_000_i64;
+    let starts = bucket_starts(1_700_000_000_000, dirty_end, TrendGrain::Month);
+    assert!(
+        (1..=401).contains(&starts.len()),
+        "脏 end 下 Month 分桶必须在硬上限内终止：{}",
+        starts.len()
+    );
+
+    // Hour/Day 天文级步进场景：start 在表示域之下（floor 原样返回），
+    // 游标不可解析即终止，产出为空。
+    let dirty_start = -9_000_000_000_000_000_i64;
+    assert!(bucket_starts(dirty_start, 1_700_000_000_000, TrendGrain::Hour).is_empty());
+    assert!(bucket_starts(dirty_start, 1_700_000_000_000, TrendGrain::Day).is_empty());
+}
+
+/// 正常窗口的桶序列不受防线影响：日/月粒度的数量与单调性都保持原口径。
+#[test]
+fn bucket_starts_covers_normal_windows() {
+    let day = 86_400_000;
+    // 3 天窗口：本地日桶 3~5 个（时区偏移与 DST 伸缩的合法范围）。
+    let starts = bucket_starts(
+        1_700_000_000_000,
+        1_700_000_000_000 + 3 * day,
+        TrendGrain::Day,
+    );
+    assert!(
+        (3..=5).contains(&starts.len()),
+        "3 天窗口应产出 3~5 个本地日桶：{starts:?}"
+    );
+    assert!(starts.windows(2).all(|w| w[0] < w[1]), "桶起点必须严格递增");
+
+    // 2023-11-15 前后 ~90 天，跨 Nov/Dec/Jan/Feb：恰 4 个月桶（对时区不敏感）。
+    let starts = bucket_starts(
+        1_700_000_000_000,
+        1_700_000_000_000 + 90 * day,
+        TrendGrain::Month,
+    );
+    assert_eq!(starts.len(), 4);
 }
 
 /// 迁移脚本的形状约束：非空、每条 SQL 都有实际语句。版本连续性由"下标即版本"

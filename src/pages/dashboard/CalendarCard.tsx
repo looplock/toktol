@@ -232,12 +232,12 @@ export function CalendarCard({ geo, strings, data, config, onConfigChange }: Cal
           firstDay: 1,
           margin: 6,
           // nameMap 数组按星期几索引（0 = 周日），不是按显示行序——firstDay 只管网格对齐。
-          nameMap: ["日", "一", "二", "三", "四", "五", "六"],
+          nameMap: strings.calendarDayLabels.split(","),
           color: palette.inkMuted,
           fontSize: 9,
         },
         monthLabel: {
-          nameMap: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+          nameMap: strings.calendarMonthLabels.split(","),
           color: palette.inkMuted,
           fontSize: 10,
         },
