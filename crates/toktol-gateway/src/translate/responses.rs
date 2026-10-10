@@ -473,8 +473,10 @@ fn created_event(model: &str) -> String {
 pub struct OpenAiChatToResponsesStream {
     model: String,
     created: bool,
-    /// 文本项：开块后累积正文，finish 时补 output_text.done + output_item.done。
-    text_open: bool,
+    /// 文本项：打开时登记 (output_index, item_id)，delta 与 finish 统一引用——
+    /// item_id 每条 delta 重新生成会让严格按协议消费的 SDK 对不上 item，
+    /// 收尾 output_index 硬编码 0 会在"工具先行"时指错 item。
+    text_item: Option<(usize, String)>,
     text: String,
     /// 上游 tool_calls index → (output_index, call_id, name, 累积参数)。
     tools: std::collections::HashMap<usize, (usize, String, String, String)>,
@@ -490,7 +492,7 @@ impl OpenAiChatToResponsesStream {
         Self {
             model: String::new(),
             created: false,
-            text_open: false,
+            text_item: None,
             text: String::new(),
             tools: std::collections::HashMap::new(),
             next_output: 0,
@@ -557,25 +559,31 @@ impl super::StreamTranslator for OpenAiChatToResponsesStream {
         if let Some(text) = delta.and_then(|d| d.get("content")).and_then(Value::as_str)
             && !text.is_empty()
         {
-            if !self.text_open {
-                self.text_open = true;
-                out.push(event(
+            let (output_index, item_id) = match self.text_item.clone() {
+                Some(item) => item,
+                None => {
+                    let item_id = format!("msg_{}", super::unix_now());
+                    let item = (self.next_output, item_id.clone());
+                    self.next_output += 1;
+                    self.text_item = Some(item.clone());
+                    out.push(event(
                         "response.output_item.added",
                         json!({
                             "type": "response.output_item.added",
-                            "output_index": self.next_output,
-                            "item": {"type": "message", "id": format!("msg_{}", super::unix_now()), "role": "assistant", "content": []},
+                            "output_index": item.0,
+                            "item": {"type": "message", "id": item_id, "role": "assistant", "content": []},
                         }),
                     ));
-                self.next_output += 1;
-            }
+                    item
+                }
+            };
             self.text.push_str(text);
             out.push(event(
                 "response.output_text.delta",
                 json!({
                     "type": "response.output_text.delta",
-                    "item_id": format!("msg_{}", super::unix_now()),
-                    "output_index": self.next_output - 1,
+                    "item_id": item_id,
+                    "output_index": output_index,
                     "content_index": 0,
                     "delta": text,
                 }),
@@ -639,12 +647,13 @@ impl super::StreamTranslator for OpenAiChatToResponsesStream {
             return vec![];
         }
         let mut out = Vec::new();
-        if self.text_open {
+        if let Some((output_index, item_id)) = self.text_item.as_ref() {
             out.push(event(
                 "response.output_text.done",
                 json!({
                     "type": "response.output_text.done",
-                    "output_index": 0,
+                    "item_id": item_id,
+                    "output_index": output_index,
                     "content_index": 0,
                     "text": self.text,
                 }),
@@ -653,12 +662,16 @@ impl super::StreamTranslator for OpenAiChatToResponsesStream {
                 "response.output_item.done",
                 json!({
                     "type": "response.output_item.done",
-                    "output_index": 0,
-                    "item": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": self.text}]},
+                    "output_index": output_index,
+                    "item": {"type": "message", "id": item_id, "role": "assistant", "content": [{"type": "output_text", "text": self.text}]},
                 }),
             ));
         }
-        for (output_index, call_id, name, arguments) in self.tools.values() {
+        // done 事件按 output_index 排序：HashMap 迭代顺序随机，并行 function_call
+        // 的收尾顺序会不稳定，违背"同输入恒同输出"的确定性契约。
+        let mut tools: Vec<_> = self.tools.values().collect();
+        tools.sort_by_key(|(output_index, _, _, _)| *output_index);
+        for (output_index, call_id, name, arguments) in tools {
             out.push(event(
                 "response.function_call_arguments.done",
                 json!({

@@ -1668,8 +1668,10 @@ impl super::StreamTranslator for GeminiToAnthropicStream {
 pub struct GeminiToResponsesStream {
     created: bool,
     terminated: bool,
-    /// 文本项：开块后累积正文，finish 时补 done 事件。
-    text_open: bool,
+    /// 文本项：打开时登记 (output_index, item_id)，delta 与收尾统一引用——
+    /// item_id 每条 delta 重新生成会让按协议消费的 SDK 对不上 item，收尾
+    /// output_index 硬编码 0 会在"工具先行"时指错 item。
+    text_item: Option<(usize, String)>,
     text: String,
     next_output: usize,
     usage: TokenUsage,
@@ -1680,10 +1682,36 @@ impl GeminiToResponsesStream {
         Self {
             created: false,
             terminated: false,
-            text_open: false,
+            text_item: None,
             text: String::new(),
             next_output: 0,
             usage: TokenUsage::default(),
+        }
+    }
+
+    /// 文本项的收尾事件（output_text.done + output_item.done）：feed 内的
+    /// finishReason 分支与断流兜底两处共用，字段统一引用登记的
+    /// (output_index, item_id)。
+    fn push_text_done(&mut self, out: &mut Vec<String>) {
+        if let Some((output_index, item_id)) = self.text_item.as_ref() {
+            out.push(Self::event(
+                "response.output_text.done",
+                json!({
+                    "type": "response.output_text.done",
+                    "item_id": item_id,
+                    "output_index": output_index,
+                    "content_index": 0,
+                    "text": self.text,
+                }),
+            ));
+            out.push(Self::event(
+                "response.output_item.done",
+                json!({
+                    "type": "response.output_item.done",
+                    "output_index": output_index,
+                    "item": {"type": "message", "id": item_id, "role": "assistant", "content": [{"type": "output_text", "text": self.text}]},
+                }),
+            ));
         }
     }
 
@@ -1798,24 +1826,31 @@ impl super::StreamTranslator for GeminiToResponsesStream {
                     {
                         continue;
                     }
-                    if !self.text_open {
-                        self.text_open = true;
-                        out.push(Self::event(
-                            "response.output_item.added",
-                            json!({
-                                "type": "response.output_item.added",
-                                "output_index": self.next_output,
-                                "item": {"type": "message", "id": format!("msg_{}", super::unix_now()), "role": "assistant", "content": []},
-                            }),
-                        ));
-                        self.next_output += 1;
-                    }
+                    let (output_index, item_id) = match self.text_item.clone() {
+                        Some(item) => item,
+                        None => {
+                            let item_id = format!("msg_{}", super::unix_now());
+                            let item = (self.next_output, item_id.clone());
+                            self.next_output += 1;
+                            self.text_item = Some(item.clone());
+                            out.push(Self::event(
+                                "response.output_item.added",
+                                json!({
+                                    "type": "response.output_item.added",
+                                    "output_index": item.0,
+                                    "item": {"type": "message", "id": item_id, "role": "assistant", "content": []},
+                                }),
+                            ));
+                            item
+                        }
+                    };
                     self.text.push_str(text);
                     out.push(Self::event(
                         "response.output_text.delta",
                         json!({
                             "type": "response.output_text.delta",
-                            "output_index": self.next_output - 1,
+                            "item_id": item_id,
+                            "output_index": output_index,
                             "content_index": 0,
                             "delta": text,
                         }),
@@ -1825,25 +1860,7 @@ impl super::StreamTranslator for GeminiToResponsesStream {
         }
         if let Some(finish) = finish {
             self.terminated = true;
-            if self.text_open {
-                out.push(Self::event(
-                    "response.output_text.done",
-                    json!({
-                        "type": "response.output_text.done",
-                        "output_index": 0,
-                        "content_index": 0,
-                        "text": self.text,
-                    }),
-                ));
-                out.push(Self::event(
-                    "response.output_item.done",
-                    json!({
-                        "type": "response.output_item.done",
-                        "output_index": 0,
-                        "item": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": self.text}]},
-                    }),
-                ));
-            }
+            self.push_text_done(&mut out);
             out.push(Self::event(
                 "response.completed",
                 json!({
@@ -1866,25 +1883,7 @@ impl super::StreamTranslator for GeminiToResponsesStream {
         if self.created && !self.terminated {
             self.terminated = true;
             let mut out = Vec::new();
-            if self.text_open {
-                out.push(Self::event(
-                    "response.output_text.done",
-                    json!({
-                        "type": "response.output_text.done",
-                        "output_index": 0,
-                        "content_index": 0,
-                        "text": self.text,
-                    }),
-                ));
-                out.push(Self::event(
-                    "response.output_item.done",
-                    json!({
-                        "type": "response.output_item.done",
-                        "output_index": 0,
-                        "item": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": self.text}]},
-                    }),
-                ));
-            }
+            self.push_text_done(&mut out);
             out.push(Self::event(
                 "response.completed",
                 json!({
