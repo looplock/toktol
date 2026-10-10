@@ -22,17 +22,6 @@ fn code_of(err: toktol_core::error::Error) -> String {
 }
 
 /// 组装状态载荷：运行位来自槽位，配置视图每次现读磁盘（页面要反映"刚保存"的文件）。
-fn current_status(
-    config_path: Option<std::path::PathBuf>,
-    handle: Option<&GatewayHandle>,
-) -> GatewayStatus {
-    proxy::status(
-        config_path.as_deref(),
-        handle.is_some_and(GatewayHandle::is_running),
-        handle.map(GatewayHandle::listen),
-    )
-}
-
 /// 每个命令独立开库：壳进程里没有长连接的必要，迁移已跑过时打开是毫秒级。
 fn open_storage() -> Result<storage::Storage, String> {
     let db =
@@ -261,9 +250,21 @@ pub fn session_transcript_cancel(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 配置视图读盘（proxy::status 读 gateway.json）是阻塞 IO：运行位/监听地址先
+/// 取成可复制标量，读盘交给阻塞线程池，不占异步执行器。
+async fn status_view(
+    running: bool,
+    listen: Option<std::net::SocketAddr>,
+) -> Result<GatewayStatus, String> {
+    let config_path = paths::gateway_config_path();
+    tauri::async_runtime::spawn_blocking(move || {
+        proxy::status(config_path.as_deref(), running, listen)
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal.as_str().to_string())
+}
+
 /// 网关状态：运行位 + 监听地址 + 配置视图（含校验错误），前端轮询用。
-/// 运行位/监听地址取自槽位后立刻放锁（SocketAddr 可复制）；配置视图读盘是
-/// 阻塞 IO，交给阻塞线程池，不占异步执行器。
 #[tauri::command]
 pub async fn gateway_status(state: State<'_, GatewaySlot>) -> Result<GatewayStatus, String> {
     let (running, listen) = {
@@ -273,22 +274,19 @@ pub async fn gateway_status(state: State<'_, GatewaySlot>) -> Result<GatewayStat
             slot.as_ref().map(GatewayHandle::listen),
         )
     };
-    let config_path = paths::gateway_config_path();
-    tauri::async_runtime::spawn_blocking(move || {
-        proxy::status(config_path.as_deref(), running, listen)
-    })
-    .await
-    .map_err(|_| ErrorCode::Internal.as_str().to_string())
+    status_view(running, listen).await
 }
 
 /// 启动网关。已在跑则原样返回状态；配置非法或端口占用则报错不落地。
+/// 持槽位锁跨 start/读盘 await：与 stop 互斥，避免并发启动出两个监听。
 #[tauri::command]
 pub async fn gateway_start(state: State<'_, GatewaySlot>) -> Result<GatewayStatus, String> {
     let mut slot = state.lock().await;
     if let Some(handle) = slot.as_ref()
         && handle.is_running()
     {
-        return Ok(current_status(paths::gateway_config_path(), Some(handle)));
+        let listen = handle.listen();
+        return status_view(true, Some(listen)).await;
     }
     let config_path = paths::gateway_config_path()
         .ok_or_else(|| ErrorCode::HomeDirUnavailable.as_str().to_string())?;
@@ -299,19 +297,21 @@ pub async fn gateway_start(state: State<'_, GatewaySlot>) -> Result<GatewayStatu
         // 启动失败把详情带给前端（端口占用/配置错误的具体原因只有这里知道）；
         // 稳定码仍在前缀，便于将来按码选文案。
         .map_err(|err| format!("{}: {err}", err.code().as_str()))?;
-    let status = current_status(paths::gateway_config_path(), Some(&handle));
+    let listen = handle.listen();
+    let status = status_view(true, Some(listen)).await?;
     *slot = Some(handle);
     Ok(status)
 }
 
 /// 停止网关（graceful：流式中的请求等完）。未运行则原样返回状态。
+/// 读盘 await 期间保持持锁：不让并发的 start 在 stop 尚未收尾时插进来。
 #[tauri::command]
 pub async fn gateway_stop(state: State<'_, GatewaySlot>) -> Result<GatewayStatus, String> {
     let mut slot = state.lock().await;
     if let Some(mut handle) = slot.take() {
         handle.stop();
     }
-    Ok(current_status(paths::gateway_config_path(), None))
+    status_view(false, None).await
 }
 
 /// 签发新访问令牌。明文只在本次返回值里出现一次；落盘的是 sha256 哈希。
