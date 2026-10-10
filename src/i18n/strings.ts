@@ -413,6 +413,7 @@ const zhCN = {
   configContentTruncated: "内容过长，仅展示前 256 KB",
   configUnsupported: "未检测到该工具的本地配置（可能未安装）",
   configLoadError: "配置读取失败",
+  configLoading: "加载中…",
   configSkillOpenFiles: "在文件中打开",
   configClose: "关闭",
 
@@ -467,6 +468,9 @@ const zhCN = {
   markdownSource: "源码",
   // 系统生成的 user 角色消息：任务通知事件条 / 压缩摘要分隔卡。
   transcriptTaskNotification: "任务通知",
+  // 任务通知事件条的状态徽章；未知状态（后端新枚举）原样展示英文原文。
+  transcriptTaskStatusCompleted: "已完成",
+  transcriptTaskStatusFailed: "失败",
   transcriptCompacted: "上下文已压缩",
   transcriptHistorySummary: "历史摘要",
   transcriptWithContinue: "含后续继续指令",
@@ -598,6 +602,7 @@ const enUS: Strings = {
   configContentTruncated: "Content is too long; only the first 256 KB is shown",
   configUnsupported: "No local configuration detected for this tool (it may not be installed)",
   configLoadError: "Failed to load configuration",
+  configLoading: "Loading…",
   configSkillOpenFiles: "Open in files",
   configClose: "Close",
 
@@ -1015,6 +1020,9 @@ const enUS: Strings = {
   markdownSource: "Source",
   // 系统生成的 user 角色消息：任务通知事件条 / 压缩摘要分隔卡。
   transcriptTaskNotification: "Task notification",
+  // Status badge on the task-notification strip; unknown statuses (new backend enums) fall back to the raw English text.
+  transcriptTaskStatusCompleted: "Completed",
+  transcriptTaskStatusFailed: "Failed",
   transcriptCompacted: "Context compacted",
   transcriptHistorySummary: "History summary",
   transcriptWithContinue: "Includes a follow-up continue instruction",

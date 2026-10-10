@@ -644,7 +644,11 @@ function TaskNotificationCard({
           {strings.transcriptRoleSystem} · {strings.transcriptTaskNotification}
         </span>
         <span className={`rounded-control px-1.5 font-medium ${statusTone(block.status)}`}>
-          {block.status}
+          {block.status === "completed"
+            ? strings.transcriptTaskStatusCompleted
+            : block.status === "failed"
+              ? strings.transcriptTaskStatusFailed
+              : block.status}
         </span>
         {tsMs !== null && (
           <span className="font-mono tabular-nums">{formatTimestamp(tsMs)}</span>

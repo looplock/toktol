@@ -2623,3 +2623,47 @@ fn marking_file_missing_clears_its_transcript_index() {
     drop(storage);
     cleanup(&path);
 }
+
+/// 迁移脚本的形状约束：非空、每条 SQL 都有实际语句。版本连续性由"下标即版本"
+/// 的数组编码保证，无需断言；这里拦的是误提交空串或纯注释 SQL。
+#[test]
+fn migration_scripts_are_non_empty() {
+    assert!(!migrations::MIGRATIONS.is_empty());
+    for (idx, sql) in migrations::MIGRATIONS.iter().enumerate() {
+        assert!(
+            sql.split(';').any(|stmt| stmt
+                .split_whitespace()
+                .any(|token| !token.starts_with("--"))),
+            "MIGRATIONS[{idx}] 是空迁移"
+        );
+    }
+}
+
+/// 后段迁移（v13 起）必须可重入：测试基建靠"回拨版本重跑后段"验证单条迁移，
+/// 这要求回拨到 12..len 的任何版本后重开，链尾都能在同一份 schema 上重跑成功。
+/// （v18 的 IF NOT EXISTS、v22 的整表重建就是为这个约束服务的；更早的迁移
+/// 含无 IF NOT EXISTS 的 CREATE TABLE，重跑会撞名，不属于此契约。）
+#[test]
+fn tail_migrations_are_reentrant_from_any_rollback_point() {
+    for rollback_to in 12..migrations::MIGRATIONS.len() {
+        let (storage, path) = test_db(&format!("reentrant-{rollback_to}"));
+        storage
+            .conn
+            .execute(&format!("PRAGMA user_version = {rollback_to}"), [])
+            .unwrap();
+        drop(storage);
+
+        let reopened = open(&path).unwrap();
+        let version: i64 = reopened
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            version as usize,
+            migrations::MIGRATIONS.len(),
+            "回拨到 v{rollback_to} 重开后必须补齐到最新版"
+        );
+        drop(reopened);
+        cleanup(&path);
+    }
+}

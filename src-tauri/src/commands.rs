@@ -262,10 +262,23 @@ pub fn session_transcript_cancel(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// 网关状态：运行位 + 监听地址 + 配置视图（含校验错误），前端轮询用。
+/// 运行位/监听地址取自槽位后立刻放锁（SocketAddr 可复制）；配置视图读盘是
+/// 阻塞 IO，交给阻塞线程池，不占异步执行器。
 #[tauri::command]
 pub async fn gateway_status(state: State<'_, GatewaySlot>) -> Result<GatewayStatus, String> {
-    let slot = state.lock().await;
-    Ok(current_status(paths::gateway_config_path(), slot.as_ref()))
+    let (running, listen) = {
+        let slot = state.lock().await;
+        (
+            slot.as_ref().is_some_and(GatewayHandle::is_running),
+            slot.as_ref().map(GatewayHandle::listen),
+        )
+    };
+    let config_path = paths::gateway_config_path();
+    tauri::async_runtime::spawn_blocking(move || {
+        proxy::status(config_path.as_deref(), running, listen)
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal.as_str().to_string())
 }
 
 /// 启动网关。已在跑则原样返回状态；配置非法或端口占用则报错不落地。

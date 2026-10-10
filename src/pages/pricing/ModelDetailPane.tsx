@@ -161,7 +161,7 @@ export function ModelDetailPane({
       {showSuggestion && selected.catalog !== null ? (
         <div className="border-b border-border px-4 py-3">
           <p className="font-mono text-xs tabular-nums text-ink-muted">
-            {strings.pricingSuggestion}：
+            {strings.pricingSuggestion}:{' '}
             {[
               microText(selected.catalog.inputPerMtokMicros),
               microText(selected.catalog.outputPerMtokMicros),

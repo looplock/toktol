@@ -261,7 +261,7 @@ export function PricingPage({
     <PageShell fill>
       {loadError === null ? null : (
         <Card className="border-danger px-4 py-2 text-sm text-danger">
-          {strings.pricingLoadError}：{loadError}
+          {strings.pricingLoadError}: {loadError}
         </Card>
       )}
 

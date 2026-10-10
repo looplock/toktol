@@ -105,13 +105,11 @@ export function buildOriginalTree(
       }
     }
     depth = Math.max(0, depth);
-    if (
-      firstIsClose &&
-      stack.length > 0 &&
-      stack[stack.length - 1]!.indent === indent
-    ) {
+    const topElement = stack[stack.length - 1];
+    if (firstIsClose && topElement !== undefined && topElement.indent === indent) {
       // 闭合行归档栈顶元素（缩进相同即配对，容错于标签名不一致）。
-      stack.pop()!.footer = line;
+      topElement.footer = line;
+      stack.pop();
       return;
     }
     if (depth > indent) {
@@ -123,7 +121,8 @@ export function buildOriginalTree(
         children: [],
         footer: null,
       };
-      const list = stack.length > 0 ? stack[stack.length - 1]!.children : top;
+      const parent = stack[stack.length - 1];
+      const list = parent !== undefined ? parent.children : top;
       list.push(element);
       stack.push(element);
       return;
@@ -131,7 +130,8 @@ export function buildOriginalTree(
     if (sawOpen && sawClose) {
       // 单行自足元素（<tag>…</tag> 同行开闭）：整行成元素节点，同样
       // 默认折叠；无 children/footer，行数提示为 0（chip 上隐藏）。
-      const list = stack.length > 0 ? stack[stack.length - 1]!.children : top;
+      const parent = stack[stack.length - 1];
+      const list = parent !== undefined ? parent.children : top;
       list.push({
         kind: "element",
         indent,

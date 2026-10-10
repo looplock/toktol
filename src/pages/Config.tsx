@@ -142,7 +142,7 @@ export function ConfigPage({ strings, initial, initialTab }: ConfigPageProps) {
 
         {loading && (
           <div className="px-5 py-16 text-center text-sm text-ink-muted" aria-live="polite">
-            …
+            {strings.configLoading}
           </div>
         )}
       </Card>
@@ -388,7 +388,7 @@ function SkillDetail({
         {skill.rel === "" || contentError !== null ? (
           <p className="text-sm text-ink-muted">{strings.configContentDenied}</p>
         ) : content === null ? (
-          <p className="text-sm text-ink-muted">…</p>
+          <p className="text-sm text-ink-muted">{strings.configLoading}</p>
         ) : (
           <>
             {content.truncated && (
@@ -556,7 +556,7 @@ function FilesPane({
         ) : contentError !== null ? (
           <div className="px-5 py-10 text-sm text-ink-muted">{strings.configContentDenied}</div>
         ) : content === null ? (
-          <div className="px-5 py-10 text-sm text-ink-muted">…</div>
+          <div className="px-5 py-10 text-sm text-ink-muted">{strings.configLoading}</div>
         ) : (
           <div className="flex flex-col">
             {content.truncated && (

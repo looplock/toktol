@@ -88,7 +88,7 @@ fn trash_one(
     trash: TrashFn,
 ) -> Result<TrashReport> {
     let Some(session) = storage.session_info(session_id)? else {
-        return Err(Error::Internal(format!("session not found: {session_id}")));
+        return Err(Error::NotFound(format!("session: {session_id}")));
     };
     let adapter = find_adapter(parse_tool(&session.tool)?)?;
     trash_session_with(storage, session_id, adapter.as_ref(), bundle_dir, trash)
@@ -105,7 +105,7 @@ pub fn trash_session_with(
     trash: TrashFn,
 ) -> Result<TrashReport> {
     let Some(session) = storage.session_info(session_id)? else {
-        return Err(Error::Internal(format!("session not found: {session_id}")));
+        return Err(Error::NotFound(format!("session: {session_id}")));
     };
 
     let source = storage.scanned_file_path(session.source_file_id)?;

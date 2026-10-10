@@ -31,6 +31,10 @@ pub enum ErrorCode {
     #[serde(rename = "core.internal")]
     Internal,
 
+    /// 请求的实体不存在（如会话已被删除/未入库）。
+    #[serde(rename = "core.not_found")]
+    NotFound,
+
     /// 该功能对此来源不适用（如数据库类来源的会话没有文件可进回收站）。
     #[serde(rename = "core.unsupported")]
     Unsupported,
@@ -73,6 +77,7 @@ impl ErrorCode {
             ErrorCode::Sqlite => "core.sqlite",
             ErrorCode::Json => "core.json",
             ErrorCode::Internal => "core.internal",
+            ErrorCode::NotFound => "core.not_found",
             ErrorCode::Unsupported => "core.unsupported",
             ErrorCode::TranscriptOversize => "core.transcript_oversize",
             ErrorCode::SourceGone => "core.source_gone",
@@ -111,6 +116,10 @@ pub enum Error {
     /// 逻辑错误：调用方违反前置条件。后续阶段按模块细分。
     #[error("internal error: {0}")]
     Internal(String),
+
+    /// 请求的实体不存在（如会话已被删除/未入库）。
+    #[error("entity not found: {0}")]
+    NotFound(String),
 
     /// 该功能对此来源不适用（如数据库类来源的会话没有文件可进回收站）。
     #[error("operation not supported for this source")]
@@ -152,6 +161,7 @@ impl Error {
             Error::Sqlite(_) => ErrorCode::Sqlite,
             Error::Json(_) => ErrorCode::Json,
             Error::Internal(_) => ErrorCode::Internal,
+            Error::NotFound(_) => ErrorCode::NotFound,
             Error::Unsupported => ErrorCode::Unsupported,
             Error::TranscriptOversize => ErrorCode::TranscriptOversize,
             Error::SourceGone(_) => ErrorCode::SourceGone,
@@ -196,6 +206,7 @@ mod tests {
                 source: std::io::Error::other("boom"),
             },
             Error::Internal("boom".to_string()),
+            Error::NotFound("session 42".to_string()),
             Error::GatewayConfig("boom".to_string()),
             Error::GatewayAuth,
             Error::GatewayUpstream("boom".to_string()),
