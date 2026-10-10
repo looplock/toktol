@@ -70,8 +70,16 @@ pub fn run_scan(storage: &Storage, disabled: &[String]) -> Result<ScanReport> {
         scan_adapter(storage, adapter.as_ref(), &mut report)?;
     }
     // 遗留自映射壳的映射自愈（幂等）：老版本建档的 raw → 自己映射借扫描修掉。
-    storage.normalize_auto_mappings()?;
-    storage.recompute_costs()?;
+    // 返回改指条数——改指换了计费口径的归一名，哪怕本轮没有新记录也要重算。
+    let remapped = storage.normalize_auto_mappings()?;
+    // 全表重算只在本轮计费口径真有变化时跑：新入账的行还没有任何成本，自愈
+    // 改指换了归一名。调度循环 30s~8min 一轮，绝大多数是空扫——无条件重算
+    // 等于两表整表 UPDATE 的持续 WAL 放大。其余计费口径变化都自带增量重算，
+    // 不依赖这里的全量兜底：网关逐条入库（insert_gateway_request）、用户改价
+    // /改映射/合并/绑定（各写路径 reprice_scoped）、目录同步（scoped）。
+    if report.records_inserted > 0 || report.sessions_created > 0 || remapped > 0 {
+        storage.recompute_costs()?;
+    }
     Ok(report)
 }
 
@@ -1325,12 +1333,56 @@ mod tests {
             (0, 0, 0),
             "全禁用时不应有任何扫描动作"
         );
-        // 价格种子与重算照常执行（幂等）。
+        // 全禁用是零动作空扫：映射自愈照常（幂等空转），但不再触发全表重算。
         let prices: i64 = storage
             .conn()
             .query_row("SELECT COUNT(*) FROM model_prices", [], |r| r.get(0))
             .unwrap();
         assert_eq!(prices, 0, "没有用量建档时种子挂不上价，属正常");
+    }
+
+    /// 空扫跳过全表重算：库中先有"无成本行"（如测试直插、绕过入库路径的
+    /// scoped 重算），零动作空扫不得给它补算；显式 recompute_costs 才补。
+    #[test]
+    fn run_scan_with_no_changes_skips_full_recompute() {
+        let storage = test_db("run-scan-no-recompute");
+        // 先挂价（scoped 重算此刻无行可算），再绕过入库路径直插一条无成本行。
+        storage
+            .set_model_price("m", Some(1_000), Some(2_000), None, None)
+            .unwrap();
+        storage
+            .conn()
+            .execute(
+                "INSERT INTO usage_records (tool, model_raw, model, ts,
+                                            input_tokens, output_tokens, dedup_key)
+                 VALUES ('claude-code', 'raw', 'm', 1, 1_000_000, 500_000, x'01')",
+                [],
+            )
+            .unwrap();
+
+        let all: Vec<String> = crate::model::Tool::ALL
+            .iter()
+            .map(|t| t.as_str().to_string())
+            .collect();
+        let report = run_scan(&storage, &all).unwrap();
+        assert_eq!(report.records_inserted, 0, "前置：本轮是零动作空扫");
+        let cost: Option<i64> = storage
+            .conn()
+            .query_row("SELECT input_cost_micros FROM usage_records", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(cost.is_none(), "空扫不得触发全表重算");
+
+        // 显式重算照常补算（有价：输入 1M token × 1000 微美元/Mtok = 1000）。
+        storage.recompute_costs().unwrap();
+        let cost: i64 = storage
+            .conn()
+            .query_row("SELECT input_cost_micros FROM usage_records", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(cost, 1_000);
     }
 
     /// FakeAdapter 的行级自洽版本：声明支持流式扫描，用于超限路径的测试。
