@@ -1274,6 +1274,15 @@ pub fn extract_usage_json(protocol: Protocol, body: &Value) -> Option<TokenUsage
     }
 }
 
+/// SSE 单行缓冲上限（8 MiB）：上游被声明为 SSE 但持续输出无换行的超大响应
+///（被误标 `text/event-stream` 的错误页、故障/被劫持的上游）时，行缓冲无界
+/// 增长直到 OOM。超限整行放弃、缓冲清空，调用方终止泵并向客户端发错误事件。
+pub const MAX_SSE_LINE_BYTES: usize = 8 * 1024 * 1024;
+
+/// [`SseScanner::push`] 的行超限哨兵：缓冲已清空，调用方应终止泵。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SseOverflow;
+
 /// 增量切分 SSE 字节流为 `data:` 载荷；处理跨 chunk 断行。
 pub struct SseScanner {
     buf: Vec<u8>,
@@ -1284,9 +1293,15 @@ impl SseScanner {
         Self { buf: Vec::new() }
     }
 
-    /// 喂一段上游字节，返回其中完整的 `data:` 行载荷。
-    pub fn push(&mut self, bytes: &[u8]) -> Vec<String> {
+    /// 喂一段上游字节，返回其中完整的 `data:` 行载荷；无换行的字节堆积超过
+    /// [`MAX_SSE_LINE_BYTES`] 时返回 [`SseOverflow`]——缓冲已清空，调用方应
+    /// 终止泵而不是陪病态上游烧内存。
+    pub fn push(&mut self, bytes: &[u8]) -> std::result::Result<Vec<String>, SseOverflow> {
         self.buf.extend_from_slice(bytes);
+        if self.buf.len() > MAX_SSE_LINE_BYTES {
+            self.buf.clear();
+            return Err(SseOverflow);
+        }
         let mut out = Vec::new();
         while let Some(pos) = self.buf.iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = self.buf.drain(..=pos).collect();
@@ -1294,7 +1309,7 @@ impl SseScanner {
                 out.push(payload);
             }
         }
-        out
+        Ok(out)
     }
 
     /// 流结束：把残余的不完整行也吐出来。
@@ -1485,10 +1500,33 @@ mod tests {
     #[test]
     fn sse_scanner_handles_split_lines() {
         let mut scanner = SseScanner::new();
-        assert!(scanner.push(b"data: {\"a\"").is_empty());
-        let events = scanner.push(b":1}\n\ndata: [DONE]\n");
+        assert!(scanner.push(b"data: {\"a\"").unwrap().is_empty());
+        let events = scanner.push(b":1}\n\ndata: [DONE]\n").unwrap();
         assert_eq!(events, vec![r#"{"a":1}"#, "[DONE]"]);
         assert!(scanner.finish().is_empty());
+    }
+
+    /// 行超限：push 报 SseOverflow 并清空缓冲（finish 无残留），scanner 可继续用；
+    /// 上限以内的正常多行推送不受影响。
+    #[test]
+    fn sse_scanner_caps_runaway_lines() {
+        let mut scanner = SseScanner::new();
+        let big = vec![b'x'; MAX_SSE_LINE_BYTES + 1];
+        assert_eq!(scanner.push(&big), Err(SseOverflow));
+        assert!(scanner.finish().is_empty(), "缓冲已被清空");
+        assert!(
+            scanner.push(b"data: next\n").unwrap().len() == 1,
+            "清空后可继续用"
+        );
+
+        // 恰好在上限内的无换行推送：不触发。
+        let mut scanner = SseScanner::new();
+        assert!(
+            scanner
+                .push(&vec![b'x'; MAX_SSE_LINE_BYTES])
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

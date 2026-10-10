@@ -711,9 +711,30 @@ async fn proxy(
         let mut usage_scanner = UsageScanner::new(upstream_protocol);
         let mut translator = translate::stream_translator(inbound, upstream_protocol);
         let mut stream = upstream_stream;
+        // 上游病态（SSE 行超限）标志：置位后跳过正常收尾——错误事件已在断点
+        // 发给客户端，不再补发合法的 [DONE]/completed 把半截流伪装成正常结束；
+        // 计量照常（已喂入的部分用量照记）。
+        let mut overflowed = false;
         while let Some(chunk) = stream.next().await {
             let Ok(bytes) = chunk else { break };
-            for payload in scanner.push(&bytes) {
+            let payloads = match scanner.push(&bytes) {
+                Ok(payloads) => payloads,
+                Err(translate::SseOverflow) => {
+                    overflowed = true;
+                    // 病态上游（无换行的超大响应）：向客户端发一条错误事件再断。
+                    let envelope = match inbound {
+                        Protocol::Anthropic => {
+                            json!({"type": "error", "error": {"type": "api_error", "message": "upstream sent an oversized SSE line"}})
+                        }
+                        _ => {
+                            json!({"error": {"message": "upstream sent an oversized SSE line", "type": "api_error", "code": "upstream_error"}})
+                        }
+                    };
+                    let _ = tx.send(format!("data: {envelope}\n\n").into_bytes()).await;
+                    break;
+                }
+            };
+            for payload in payloads {
                 usage_scanner.feed(&payload);
                 if let Some(translator) = translator.as_mut() {
                     for line in translator.feed(&payload) {
@@ -737,17 +758,19 @@ async fn proxy(
                 break; // 同上：断开只停转发，计量照做。
             }
         }
-        for payload in scanner.finish() {
-            usage_scanner.feed(&payload);
-            if let Some(translator) = translator.as_mut() {
-                for line in translator.feed(&payload) {
-                    let _ = tx.send(format!("data: {line}\n\n").into_bytes()).await;
+        if !overflowed {
+            for payload in scanner.finish() {
+                usage_scanner.feed(&payload);
+                if let Some(translator) = translator.as_mut() {
+                    for line in translator.feed(&payload) {
+                        let _ = tx.send(format!("data: {line}\n\n").into_bytes()).await;
+                    }
                 }
             }
-        }
-        if let Some(translator) = translator.as_mut() {
-            for line in translator.finish() {
-                let _ = tx.send(format!("data: {line}\n\n").into_bytes()).await;
+            if let Some(translator) = translator.as_mut() {
+                for line in translator.finish() {
+                    let _ = tx.send(format!("data: {line}\n\n").into_bytes()).await;
+                }
             }
         }
         drop(tx);
