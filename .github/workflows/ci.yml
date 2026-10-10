@@ -44,9 +44,10 @@ jobs:
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
-      # pnpm check = verify:deps + verify:constants + verify:theme-tokens + verify:version
-      #              + cargo fmt --check + cargo clippy -D warnings + tsc --noEmit
-      # 两个校验脚本排在命令最前面：几秒钟，在编译开始之前就拦住常量/版本漂移。
+      # pnpm check = verify:deps + verify:constants + verify:api + verify:theme-tokens
+      #              + verify:style + verify:version + cargo fmt --check
+      #              + cargo clippy -D warnings + tsc --noEmit
+      # 校验脚本排在命令最前面：几秒钟，在编译开始之前就拦住声明层面的漂移。
       - name: Quality gate
         run: pnpm check
 

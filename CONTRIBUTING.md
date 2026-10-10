@@ -39,8 +39,9 @@ pnpm test                   # vitest
 cargo test --workspace      # 三个 crate 的 Rust 测试
 ```
 
-`pnpm check` 里三个校验脚本按"快 → 慢"排在最前面：`verify:deps`（当前仅告警）、
-`verify:constants`、`verify:version`，几秒钟就能拦住声明层面的漂移，不必等编译。
+`pnpm check` 里六个校验脚本按"快 → 慢"排在最前面：`verify:deps`（当前仅告警）、
+`verify:constants`、`verify:api`、`verify:theme-tokens`、`verify:style`、`verify:version`，
+几秒钟就能拦住声明层面的漂移，不必等编译。
 
 CI 在 Ubuntu 上跑 `pnpm check` 与两套测试，另外在 Windows、macOS 上跑
 `cargo test --workspace`——路径处理、回收站、文件监听都是平台敏感的，本地只测一个平台

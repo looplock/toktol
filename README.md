@@ -23,8 +23,6 @@
 
 </div>
 
-<!-- TODO: dashboard screenshot here, once the first release assets are built. -->
-
 ## Background
 
 Every AI coding tool you use already writes session logs on your machine — but none of them
