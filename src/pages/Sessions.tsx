@@ -121,17 +121,23 @@ export function SessionsPage({
     [toolFilter, search],
   );
 
+  // 页码钳位在 fetch 闭包里做（经 ref 取最新渲染的 data，与 Details 同一套
+  // 模式）：删除会话后 total 缩水，停在越界页会拉回空列表。渲染层的
+  // currentPage 钳位不变。
   const sessionsQuery = useInvokeQuery({
     deps: [filters, disabledTools, page],
-    fetch: () =>
-      fetchSessionsPage({
+    fetch: () => {
+      const total = sessionsQuery.data?.total ?? 0;
+      const current = Math.min(page, Math.max(1, Math.ceil(total / DEFAULT_PAGE_SIZE)));
+      return fetchSessionsPage({
         filters,
         disabled: disabledTools,
         sortKey: null,
         sortDesc: true,
-        offset: (page - 1) * DEFAULT_PAGE_SIZE,
+        offset: (current - 1) * DEFAULT_PAGE_SIZE,
         limit: DEFAULT_PAGE_SIZE,
-      }),
+      });
+    },
     initialData: initialPageData,
     onSuccess: () => setDeleteFailedCount(null),
   });
