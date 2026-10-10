@@ -315,10 +315,11 @@ pub async fn gateway_stop(state: State<'_, GatewaySlot>) -> Result<GatewayStatus
 }
 
 /// 签发新访问令牌。明文只在本次返回值里出现一次；落盘的是 sha256 哈希。
+/// 写 gateway.json，同样过配置写锁：不与上游/映射的增删改交错写坏文件。
 #[tauri::command]
-pub async fn gateway_issue_token() -> Result<String, String> {
-    let config_path = paths::gateway_config_path()
-        .ok_or_else(|| ErrorCode::HomeDirUnavailable.as_str().to_string())?;
+pub async fn gateway_issue_token(lock: State<'_, ConfigWriteLock>) -> Result<String, String> {
+    let config_path = gateway_config_path_or_err()?;
+    let _guard = lock.lock().await;
     tauri::async_runtime::spawn_blocking(move || {
         let token = toktol_gateway::config::generate_token();
         toktol_gateway::config::append_token_hash(&config_path, &token).map_err(code_of)?;
