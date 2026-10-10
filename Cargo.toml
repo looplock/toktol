@@ -56,8 +56,9 @@ windows-sys = { version = "0.60", features = ["Win32_System_Threading"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 axum = "0.8"
 # TLS 用 rustls 而非默认 native-tls：上游固定是公网 API 域名，不需要系统证书库的
-# 平台差异行为；stream 供 SSE 转发
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+# 平台差异行为；stream 供 SSE 转发；blocking 供 core 的 models.dev 目录同步
+#（拉取链路在领域层，壳不再挂 reqwest）
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "blocking"] }
 arc-swap = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 

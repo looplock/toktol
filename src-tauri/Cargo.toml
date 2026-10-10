@@ -24,9 +24,6 @@ path = "src/main.rs"
 toktol-core.workspace = true
 toktol-gateway.workspace = true
 
-# models.dev 模型目录的拉取（定价页同步命令）
-reqwest.workspace = true
-
 # 壳偏好 config.json（托盘/低功耗）的读写
 serde.workspace = true
 serde_json.workspace = true

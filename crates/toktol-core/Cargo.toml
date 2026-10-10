@@ -22,6 +22,8 @@ ruzstd.workspace = true
 trash.workspace = true
 # 配置页：解析 codex/grok 的 config.toml（MCP 服务器段）
 toml.workspace = true
+# 定价页：拉取 models.dev 公共目录（blocking 客户端，调用方负责放进阻塞线程）
+reqwest.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

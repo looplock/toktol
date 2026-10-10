@@ -208,7 +208,7 @@ impl Storage {
     }
 
     /// 目录同步的完整落库流程：整份换快照 → 按三级来源挂价 → 自动重算。
-    /// 解析在调用方（壳命令）完成，这里只管写入与聚合结果。
+    /// 拉取与解析在 [`crate::pricing::catalog::sync_catalog`]，这里只管写入与聚合结果。
     pub fn apply_catalog(&self, entries: &[CatalogEntry]) -> Result<CatalogSyncPayload> {
         let now = now_ms();
         self.replace_catalog_entries(entries, now)?;

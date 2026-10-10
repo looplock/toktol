@@ -337,6 +337,10 @@ pub async fn gateway_overview() -> Result<storage::GatewayOverviewPayload, Strin
     .map_err(|_| ErrorCode::Internal.as_str().to_string())?
 }
 
+/// IPC 分页命令的页大小统一上限：明细 / 会话 / 网关流量同口径。前端可选的
+/// 页大小都不会超过它，这里钳的是防误传把整表拉回。
+const PAGE_SIZE_MAX: i64 = 200;
+
 /// 明细页请求级分页：筛选/排序/分页都在 SQL 里做（行数无上界，不能整表拉回前端）。
 #[tauri::command]
 pub async fn usage_records_page(
@@ -345,8 +349,8 @@ pub async fn usage_records_page(
     tauri::async_runtime::spawn_blocking(move || {
         let storage = open_storage()?;
         let mut query = query;
-        // 页大小在这里约束上限，与 gateway_requests 同口径；页码换算成偏移也在这层做。
-        query.limit = query.limit.clamp(1, 200);
+        // 页大小统一钳到 PAGE_SIZE_MAX；页码换算成偏移也在这层做。
+        query.limit = query.limit.clamp(1, PAGE_SIZE_MAX);
         query.offset = query.offset.max(0);
         storage.usage_records_page(&query).map_err(code_of)
     })
@@ -378,7 +382,7 @@ pub async fn sessions_page(
     tauri::async_runtime::spawn_blocking(move || {
         let storage = open_storage()?;
         let mut query = query;
-        query.limit = query.limit.clamp(1, 200);
+        query.limit = query.limit.clamp(1, PAGE_SIZE_MAX);
         query.offset = query.offset.max(0);
         storage.sessions_page(&query).map_err(code_of)
     })
@@ -386,7 +390,7 @@ pub async fn sessions_page(
     .map_err(|_| ErrorCode::Internal.as_str().to_string())?
 }
 
-/// 流量明细分页。页码从 1 起；page_size 由前端约束（这里硬上限 100 防误传）。
+/// 流量明细分页。页码从 1 起；页大小统一钳到 PAGE_SIZE_MAX 防误传。
 #[tauri::command]
 pub async fn gateway_requests(
     page: i64,
@@ -394,7 +398,7 @@ pub async fn gateway_requests(
 ) -> Result<storage::GatewayRequestsPage, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let storage = open_storage()?;
-        let page_size = page_size.clamp(1, 100);
+        let page_size = page_size.clamp(1, PAGE_SIZE_MAX);
         let page = page.max(1);
         storage
             .gateway_requests_page((page - 1) * page_size, page_size)
@@ -490,31 +494,14 @@ pub async fn gateway_mapping_delete(
 
 // ── 定价页：模型目录同步、价格确认与映射修正 ─────────────────────
 
-/// models.dev 公共目录的地址（解析与落库在 core，网络只在这里）。
-const MODEL_CATALOG_URL: &str = "https://models.dev/api.json";
-
-/// 拉取 models.dev 公共模型目录：解析成微美元口径，整份换快照、按三级来源
-/// （seed < catalog < user）挂价并自动重算。断网/非 2xx 返回 core.catalog_fetch。
+/// 拉取 models.dev 公共模型目录并整体落库。拉取、解析与挂价重算全在
+/// [`toktol_core::pricing::catalog::sync_catalog`]（blocking HTTP，故整条放进
+/// spawn_blocking）；断网/非 2xx 返回 core.catalog_fetch。
 #[tauri::command]
 pub async fn sync_model_catalog() -> Result<storage::CatalogSyncPayload, String> {
-    let response = reqwest::get(MODEL_CATALOG_URL)
-        .await
-        .map_err(|err| format!("{}: {err}", ErrorCode::CatalogFetch.as_str()))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "{}: HTTP {}",
-            ErrorCode::CatalogFetch.as_str(),
-            response.status().as_u16()
-        ));
-    }
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format!("{}: {err}", ErrorCode::CatalogFetch.as_str()))?;
     tauri::async_runtime::spawn_blocking(move || {
-        let entries = pricing::catalog::parse_catalog_json(&text).map_err(code_of)?;
         let storage = open_storage()?;
-        storage.apply_catalog(&entries).map_err(code_of)
+        pricing::catalog::sync_catalog(&storage).map_err(code_of)
     })
     .await
     .map_err(|_| ErrorCode::Internal.as_str().to_string())?

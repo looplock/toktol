@@ -9,6 +9,10 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 use crate::error::{Error, Result};
+use crate::storage::{CatalogSyncPayload, Storage};
+
+/// models.dev 公共目录的地址。
+pub const MODEL_CATALOG_URL: &str = "https://models.dev/api.json";
 
 /// 目录快照的一行，单价已换算为微美元 / 每百万 token；缺价的桶为 `None`。
 #[derive(Debug, Clone, PartialEq)]
@@ -95,6 +99,41 @@ pub fn parse_catalog_json(text: &str) -> Result<Vec<CatalogEntry>> {
     Ok(entries)
 }
 
+/// 目录同步的整条链路：拉取 → 解析 → 整份换快照挂价重算。HTTP 编排住在 core
+/// 而非壳命令——网络编排是领域流程的一部分，进了 core 才可测。
+/// blocking HTTP：调用方（壳命令）必须放进 spawn_blocking，别在 async 上下文直调。
+pub fn sync_catalog(storage: &Storage) -> Result<CatalogSyncPayload> {
+    sync_catalog_from(storage, MODEL_CATALOG_URL)
+}
+
+/// [`sync_catalog`] 的可测形态：URL 可注入，测试用本地服务器走全链路。
+fn sync_catalog_from(storage: &Storage, url: &str) -> Result<CatalogSyncPayload> {
+    let text = fetch_catalog_text(url)?;
+    let entries = parse_catalog_json(&text)?;
+    storage.apply_catalog(&entries)
+}
+
+/// 拉取目录原文。断网、非 2xx、响应不可读统一折进 CatalogFetch——对用户
+/// 是同一件事：目录没拿到。总超时 30s：同步是用户手动触发，宁可报错重试，
+/// 也不能让调用方的阻塞线程无限挂着。
+fn fetch_catalog_text(url: &str) -> Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|err| Error::CatalogFetch(err.to_string()))?;
+    let response = client
+        .get(url)
+        .send()
+        .map_err(|err| Error::CatalogFetch(err.to_string()))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(Error::CatalogFetch(format!("HTTP {}", status.as_u16())));
+    }
+    response
+        .text()
+        .map_err(|err| Error::CatalogFetch(err.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,5 +177,73 @@ mod tests {
     #[test]
     fn broken_catalog_json_is_an_error_not_a_panic() {
         assert!(parse_catalog_json("{ not json").is_err());
+    }
+
+    // ── sync_catalog 全链路：std 自带的单连接测试服务器，不为测试引 dev-dep ──
+
+    /// 每个测试独享一个临时库（同款做法见 storage::tests）。
+    fn test_db(tag: &str) -> (Storage, std::path::PathBuf) {
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "toktol-catalog-test-{}-{}-{tag}.db",
+            std::process::id(),
+            seq
+        ));
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(path.with_extension(format!("db{suffix}")));
+        }
+        (crate::storage::open(&path).expect("打开测试库"), path)
+    }
+
+    fn cleanup(path: &std::path::Path) {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(path.with_extension(format!("db{suffix}")));
+        }
+    }
+
+    /// 监听一次请求、回一段预制响应后关店。测试线程读不满请求无所谓——GET 无体。
+    fn serve_once(response: Vec<u8>) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("绑定测试端口");
+        let addr = listener.local_addr().expect("读取测试端口");
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let _ = std::io::Write::write_all(&mut stream, &response);
+            }
+        });
+        format!("http://{addr}/")
+    }
+
+    #[test]
+    fn sync_catalog_applies_a_2xx_body_end_to_end() {
+        let (storage, path) = test_db("sync-ok");
+        let body = r#"{"deepseek":{"models":{"deepseek-v4-flash":{"name":"DeepSeek V4 Flash","cost":{"input":0.15,"output":0.6}}}}}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let url = serve_once(response.into_bytes());
+        let payload = sync_catalog_from(&storage, &url).expect("2xx 目录应整体落库");
+        assert_eq!(payload.entries, 1);
+        assert_eq!(payload.matched, 0, "空库无模型可匹配，快照照常入库");
+        assert_eq!(payload.priced, 0);
+        assert_eq!(payload.remapped, 0);
+        drop(storage);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn sync_catalog_maps_non_2xx_to_catalog_fetch() {
+        let (storage, path) = test_db("sync-500");
+        let url = serve_once(
+            b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                .to_vec(),
+        );
+        let err = sync_catalog_from(&storage, &url).expect_err("非 2xx 必须报错");
+        assert_eq!(err.code(), crate::error::ErrorCode::CatalogFetch);
+        drop(storage);
+        cleanup(&path);
     }
 }
