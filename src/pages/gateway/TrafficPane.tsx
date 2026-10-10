@@ -2,7 +2,7 @@
  * 流量分区：网关请求流水（服务端分页），列定义也住这里。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import type { DataTableColumn } from "../../components/data/DataTable";
 import { DataTable } from "../../components/data/DataTable";
 import { Badge } from "../../components/ui/Badge";
@@ -21,6 +21,7 @@ import {
   formatTimestamp,
   formatTokens,
 } from "../../lib/format";
+import { useInvokeQuery } from "../../lib/hooks/useInvokeQuery";
 import { useNumberUnit, type NumberUnit } from "../../lib/numberUnit";
 import { PaneCard } from "./PaneCard";
 
@@ -108,24 +109,16 @@ interface TrafficPaneProps {
 export function TrafficPane({ strings, overviewError }: TrafficPaneProps) {
   const numberUnit = useNumberUnit();
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<GatewayRequestsPage | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  const load = useCallback(() => {
-    setLoading(true);
-    fetchGatewayRequests(page, TRAFFIC_PAGE_SIZE)
-      .then((next) => {
-        setData(next);
-        setError(null);
-      })
-      .catch((err: unknown) => setError(String(err)))
-      .finally(() => setLoading(false));
-  }, [page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  // 统一装载状态机（deps: [page]）：在途响应按代号作废，快速翻页的迟到
+  // 旧页不得覆盖新页；刷新按钮走 reload（deps 之外的失效源）。
+  const traffic = useInvokeQuery<GatewayRequestsPage>({
+    deps: [page],
+    fetch: () => fetchGatewayRequests(page, TRAFFIC_PAGE_SIZE),
+  });
+  const data = traffic.data;
+  const error = traffic.error;
+  const loading = traffic.loading;
 
   const pageCount =
     data === null ? 1 : Math.max(1, Math.ceil(data.total / TRAFFIC_PAGE_SIZE));
@@ -136,7 +129,7 @@ export function TrafficPane({ strings, overviewError }: TrafficPaneProps) {
         <span className="text-sm">
           {formatCount(data?.total ?? 0)} {strings.gatewayTabTraffic}
         </span>
-        <Button variant="ghost" onClick={load} disabled={loading}>
+        <Button variant="ghost" onClick={traffic.reload} disabled={loading}>
           {strings.gatewayRefresh}
         </Button>
       </div>
