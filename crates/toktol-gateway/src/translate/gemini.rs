@@ -447,19 +447,14 @@ pub fn anthropic_to_gemini(body: Value) -> Result<Value> {
                 }
                 Some("image") => {
                     // base64 source → inlineData；web URL beta 形态无对等表达，跳过。
-                    let source = block.get("source");
-                    if source.and_then(|s| s.get("type")).and_then(Value::as_str) == Some("base64")
+                    if let Some(source) = block.get("source")
+                        && source.get("type").and_then(Value::as_str) == Some("base64")
                     {
                         let media = source
-                            .unwrap()
                             .get("media_type")
                             .and_then(Value::as_str)
                             .unwrap_or("image/png");
-                        let data = source
-                            .unwrap()
-                            .get("data")
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
+                        let data = source.get("data").and_then(Value::as_str).unwrap_or("");
                         parts.push(json!({"inlineData": {"mimeType": media, "data": data}}));
                     }
                 }

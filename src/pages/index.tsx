@@ -1,10 +1,8 @@
 /**
- * 页面注册表与占位实现。真实内容就绪后逐页替换 PageView 的实现，外壳不动。
- * 两张表按 PageId 建表，加页面忘了补会编译报错；标题复用导航标签，两处不会漂移。
+ * 页面注册表：PageId → 真实页面。两张表按 PageId 建表，加页面忘了补会编译报错；
+ * 标题复用导航标签，两处不会漂移。
  */
 
-import { Card } from "../components/ui/Card";
-import { PageShell } from "../components/PageShell";
 import type { MessageKey, Strings } from "../i18n/strings";
 import type { InputScope } from "../lib/inputScope";
 import type { Locale } from "../lib/locale";
@@ -28,17 +26,6 @@ export const PAGE_LABEL_KEYS: Record<PageId, MessageKey> = {
   pricing: "navPricing",
   config: "navConfig",
   settings: "navSettings",
-};
-
-// 会话页已是真实实现；其余未实现页沿用总表。
-const PAGE_DESCRIPTION_KEYS: Partial<Record<PageId, MessageKey>> = {
-  overview: "pageOverviewDesc",
-  details: "pageDetailsDesc",
-  sessions: "pageSessionsDesc",
-  gateway: "pageGatewayDesc",
-  pricing: "pagePricingDesc",
-  config: "pageConfigDesc",
-  settings: "pageSettingsDesc",
 };
 
 interface PageViewProps {
@@ -167,21 +154,8 @@ export function PageView({
     return <ConfigPage strings={strings} />;
   }
 
-  const descriptionKey = PAGE_DESCRIPTION_KEYS[page];
-  return (
-    <PageShell
-      title={strings[PAGE_LABEL_KEYS[page]]}
-      {...(descriptionKey === undefined
-        ? {}
-        : { description: strings[descriptionKey] })}
-    >
-      <Card
-        dashed
-        padding="none"
-        className="px-6 py-16 text-center text-sm text-ink-muted"
-      >
-        {strings.pagePlaceholder}
-      </Card>
-    </PageShell>
-  );
+  // 七页全部接线完毕：PageId 加了成员而上面漏接线时，这一行编译即报错
+  // （page 不再收窄为 never），不会静默渲染出空白页。
+  page satisfies never;
+  return null;
 }

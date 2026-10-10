@@ -330,15 +330,18 @@ fn turn_request_weights(history: &str, tool_defs_bytes: i64) -> Vec<Vec<RequestW
                 .filter_map(|call| call.id.clone())
                 .filter(|id| !id.trim().is_empty())
                 .collect();
-            if turns.last_mut().is_none() {
-                // assistant 先于任何 user 行（反常布局）：开一个合成回合接住。
-                turns.push(Vec::new());
-            }
-            turns.last_mut().unwrap().push(RequestWeights {
+            let weights = RequestWeights {
                 context,
                 output: bytes,
                 call_ids,
-            });
+            };
+            match turns.last_mut() {
+                Some(turn) => turn.push(weights),
+                // assistant 先于任何 user 行（反常布局）：开一个合成回合接住。
+                None => {
+                    turns.push(vec![weights]);
+                }
+            }
             context += bytes;
         } else {
             // 非合成 user 行开启新回合；其余行（system、tool_result、合成

@@ -22,17 +22,10 @@ const zhCN = {
   navPricing: "定价",
   navSettings: "设置",
 
-  pageOverviewDesc: "花费与用量的整体视图：关键指标、趋势与构成。",
   overviewLoading: "加载中…",
   overviewLoadError: "仪表盘数据读取失败",
   cardEmpty: "暂无数据",
   retryLabel: "重试",
-  pageDetailsDesc: "逐条用量记录，按时间、工具、模型、项目筛选后可导出。",
-  pageGatewayDesc: "本地网关：运行状态、监听地址、路由与访问令牌。",
-  pagePricingDesc: "模型价格：models.dev 目录价、本地覆盖规则与未定价模型的处理。",
-  pageSettingsDesc: "应用偏好：语言、主题、数据来源路径与扫描设置。",
-
-  pagePlaceholder: "这一页还没有内容。先把导航与各页外壳搭起来，随后逐页填充。",
 
   settingsAppearance: "外观",
   settingsTheme: "主题",
@@ -266,7 +259,6 @@ const zhCN = {
   detailsLoadError: "明细读取失败",
 
   // 会话页。卡片与详情共用这里；详情的消息块标签复用 transcript* 键。
-  pageSessionsDesc: "按会话聚合的用量：最近活跃、请求次数、Tokens 与花费。",
   sessionsEmpty: "还没有任何会话",
   sessionsEmptyHint: "扫描到会话日志后，这里会按会话聚合展示",
   sessionsLoadError: "会话读取失败",
@@ -398,8 +390,6 @@ const zhCN = {
 
   // 配置页：各工具的本地配置视图。只读展示，疑似密钥的值一律打码。
   navConfig: "配置",
-  pageConfigDesc:
-    "各工具的本地配置：MCP 服务器、Skills 与文件目录。只读展示，疑似密钥的值一律打码。",
   configSidebarTitle: "智能体",
   configTabMcp: "MCP",
   configTabSkills: "Skills",
@@ -578,22 +568,13 @@ const enUS: Strings = {
   navPricing: "Pricing",
   navSettings: "Settings",
 
-  pageOverviewDesc: "The big picture of spend and usage: key metrics, trends and composition.",
   overviewLoading: "Loading…",
   overviewLoadError: "Failed to load dashboard data",
   cardEmpty: "No data",
   retryLabel: "Retry",
-  pageDetailsDesc: "Per-request usage records, filterable by time, tool, model and project.",
-  pageGatewayDesc: "Local gateway: status, listen address, routes and access tokens.",
-  pagePricingDesc: "Model pricing: models.dev catalog prices, local overrides and unpriced models.",
-  pageSettingsDesc: "App preferences: language, theme, data source paths and scan settings.",
-
-  pagePlaceholder: "This page has no content yet. The shell comes first; pages fill in one by one.",
 
   // 配置页：各工具的本地配置视图。只读展示，疑似密钥的值一律打码。
   navConfig: "Config",
-  pageConfigDesc:
-    "Local configuration per tool: MCP servers, skills and files. Read-only; secret-looking values are always masked.",
   configSidebarTitle: "Agents",
   configTabMcp: "MCP",
   configTabSkills: "Skills",
@@ -852,7 +833,6 @@ const enUS: Strings = {
   detailsLoadError: "Failed to load details",
 
   // 会话页。卡片与详情共用这里；详情的消息块标签复用 transcript* 键。
-  pageSessionsDesc: "Usage grouped by session: recent activity, request counts, tokens and spend.",
   sessionsEmpty: "No sessions yet",
   sessionsEmptyHint: "Once session logs are scanned, they are grouped here by session",
   sessionsLoadError: "Failed to load sessions",

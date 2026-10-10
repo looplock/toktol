@@ -54,10 +54,7 @@ function reportFixture(overrides: Partial<ToolConfigReport> = {}): ToolConfigRep
         rel: "",
       },
     ],
-    roots: [
-      { key: "home", label: "~/.claude", entries: [] },
-      { key: "user-json", label: "~/.claude.json", entries: [] },
-    ],
+    roots: [{ key: "home", label: "~/.claude", entries: [] }],
     ...overrides,
   };
 }

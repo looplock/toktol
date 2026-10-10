@@ -215,7 +215,7 @@ fn content_read_redacts_and_gates() {
 }
 
 #[test]
-fn claude_json_is_listed_but_content_denied() {
+fn claude_json_root_is_not_offered_and_credential_denial_still_holds() {
     let home = fake_home("claudejson");
     write(&home.join(".claude.json"), "{\"mcpServers\": {}}");
     write(
@@ -224,16 +224,14 @@ fn claude_json_is_listed_but_content_denied() {
     );
 
     let report = inspect_in(&home, "claude-code");
-    let json_root = report
-        .roots
-        .iter()
-        .find(|r| r.key == "user-json")
-        .expect("有 json 根");
-    assert_eq!(json_root.label, "~/.claude.json");
+    assert!(
+        report.roots.iter().all(|r| r.key != "user-json"),
+        "user-json 根已删除：永远被凭据闸门拒读的根不该出现在报告里"
+    );
 
-    // .claude.json 内含 OAuth 与 API key 记录，内容查看拒绝；树里登记的
-    // settings.json 正常可读。
-    assert!(read_entry_in(&home, "claude-code", "user-json", "").is_err());
+    // .claude.json 内含 OAuth 与 API key 记录，凭据闸门继续兜底（哪怕将来
+    // 有人把它误登记回某个根）；树里登记的 settings.json 正常可读。
+    assert!(super::is_credential_path(&home.join(".claude.json")));
     let settings =
         read_entry_in(&home, "claude-code", "home", "settings.json").expect("settings 可读");
     assert!(settings.text.contains("\"model\": \"opus\""));

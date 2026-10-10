@@ -238,10 +238,12 @@ fn read_entry_in(home: &Path, tool: &str, root_key: &str, rel: &str) -> Result<F
 }
 
 /// 工具内根键 → 磁盘路径。只有这里登记的路径可以回读，越键即拒绝。
+/// `.claude.json` 不登记：它内含 OAuth 与 API key 记录（凭据红线见
+/// `is_credential_path`），MCP 元数据已在装配时提取进 mcp 列表，内容没有
+/// 面向用户的查看通道。
 fn root_path(home: &Path, tool: &str, root_key: &str) -> Option<PathBuf> {
     match (tool, root_key) {
         ("claude-code", "home") => Some(home.join(".claude")),
-        ("claude-code", "user-json") => Some(home.join(".claude.json")),
         ("codex", "home") => Some(home.join(".codex")),
         ("grok", "home") => Some(home.join(".grok")),
         ("zcode", "home") => Some(home.join(".zcode")),
@@ -292,18 +294,11 @@ fn claude_code(home: &Path) -> ToolConfigReport {
         supported,
         mcp,
         skills,
-        roots: vec![
-            ConfigRoot {
-                key: "home".into(),
-                label: "~/.claude".into(),
-                entries: list_tree(&dir),
-            },
-            ConfigRoot {
-                key: "user-json".into(),
-                label: "~/.claude.json".into(),
-                entries: vec![],
-            },
-        ],
+        roots: vec![ConfigRoot {
+            key: "home".into(),
+            label: "~/.claude".into(),
+            entries: list_tree(&dir),
+        }],
     }
 }
 
