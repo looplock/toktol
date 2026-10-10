@@ -5,7 +5,7 @@
 //! 写方只有本模块，读改写全程持同一把进程内锁；写失败不致命（托盘/低功耗
 //! 丢一次持久化而已），按 log 输出后继续。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -44,7 +44,7 @@ fn default_true() -> bool {
 }
 
 impl ShellConfig {
-    pub fn load(path: &PathBuf) -> Self {
+    pub fn load(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             // 文件不存在或字段缺失按缺省；解析失败同样回退缺省——损坏的壳配置
             // 不值得拦住启动，写回时会整体覆盖修复。
@@ -53,9 +53,11 @@ impl ShellConfig {
         }
     }
 
-    pub fn store(&self, path: &PathBuf) {
+    /// 落盘走原子写（temp + rename）：写一半崩溃留下的是半份 JSON，下次启动
+    /// 虽能按缺省修复，但托盘开关会静默回跳——能防住的不该靠"能修复"兜底。
+    pub fn store(&self, path: &Path) {
         if let Ok(text) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(path, text);
+            let _ = toktol_core::fsutil::write_file_atomic(path, &text);
         }
     }
 }

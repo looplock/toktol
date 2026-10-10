@@ -7,6 +7,7 @@
 
 pub mod adapter;
 pub mod error;
+pub mod fsutil;
 pub mod model;
 pub mod paths;
 

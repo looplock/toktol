@@ -422,9 +422,11 @@ fn edit_config_file(
     mutate(&mut document)?;
     let rendered = serde_json::to_string_pretty(&document)?;
     parse(&rendered)?;
-    std::fs::write(path, rendered + "\n").map_err(|source| Error::DataFile {
-        path: path.to_path_buf(),
-        source,
+    toktol_core::fsutil::write_file_atomic(path, &format!("{rendered}\n")).map_err(|source| {
+        Error::DataFile {
+            path: path.to_path_buf(),
+            source,
+        }
     })?;
     Ok(())
 }
@@ -448,15 +450,11 @@ pub fn ensure_default(path: &Path) -> Result<bool> {
         "routes": [],
         "token_hashes": [],
     }))?;
-    std::fs::write(
-        path,
-        rendered
-            + "
-",
-    )
-    .map_err(|source| Error::DataFile {
-        path: path.to_path_buf(),
-        source,
+    toktol_core::fsutil::write_file_atomic(path, &format!("{rendered}\n")).map_err(|source| {
+        Error::DataFile {
+            path: path.to_path_buf(),
+            source,
+        }
     })?;
     Ok(true)
 }

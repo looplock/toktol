@@ -195,7 +195,8 @@ pub struct TranscriptProgressPayload {
 
 /// 为会话源文件构建转录索引：专用低优先级线程（Windows 下 THREAD_MODE_
 /// BACKGROUND，机器忙时自动让路），进度经 `transcript://progress` 事件
-/// 广播；返回是否建完整（false = 被取消，断点已落库）。
+/// 广播；返回是否建完整（false = 被取消，断点已落库）。并发建站各持一份
+/// 取消旗标（注册表见 [`crate::TranscriptBuildSlot`]），互不覆盖。
 #[tauri::command]
 pub async fn session_transcript_build(
     app: tauri::AppHandle,
@@ -203,13 +204,10 @@ pub async fn session_transcript_build(
     external_id: String,
 ) -> Result<bool, String> {
     use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
 
-    let cancel = Arc::new(AtomicBool::new(false));
-    {
-        let slot = app.state::<crate::TranscriptBuildSlot>();
-        *slot.0.lock().expect("建站取消槽位锁中毒") = Some(Arc::clone(&cancel));
-    }
+    let cancel = app.state::<crate::TranscriptBuildSlot>().register();
+    // 闭包 move 进的是这份克隆，注册表句柄留在本地做 unregister。
+    let build_cancel = Arc::clone(&cancel);
     let build_tool = tool.clone();
     let build_external = external_id.clone();
     let progress_app = app.clone();
@@ -230,7 +228,7 @@ pub async fn session_transcript_build(
                         },
                     );
                 };
-                let cancel = Arc::clone(&cancel);
+                let cancel = Arc::clone(&build_cancel);
                 let storage = open_storage()?;
                 sessions::build_transcript_index(
                     &storage,
@@ -247,28 +245,19 @@ pub async fn session_transcript_build(
             .join()
             .map_err(|_| "transcript index thread panicked".to_string())?
     })
-    .await
-    .map_err(|_| ErrorCode::Internal.as_str().to_string())?;
+    .await;
 
-    {
-        let slot = app.state::<crate::TranscriptBuildSlot>();
-        *slot.0.lock().expect("建站取消槽位锁中毒") = None;
-    }
-    joined
+    // 摘旗标在结果传播之前：spawn_blocking 自身失败也不能把旗标留在注册表里。
+    app.state::<crate::TranscriptBuildSlot>()
+        .unregister(&cancel);
+    joined.map_err(|_| ErrorCode::Internal.as_str().to_string())?
 }
 
-/// 取消正在进行的建站（已建部分已落库，下次从断点继续）。
+/// 取消正在进行的建站（可能不止一个在飞）：全体置位，已建部分已落库，
+/// 下次从断点继续。
 #[tauri::command]
 pub fn session_transcript_cancel(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(flag) = app
-        .state::<crate::TranscriptBuildSlot>()
-        .0
-        .lock()
-        .expect("建站取消槽位锁中毒")
-        .as_ref()
-    {
-        flag.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
+    app.state::<crate::TranscriptBuildSlot>().cancel_all();
     Ok(())
 }
 

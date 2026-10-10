@@ -41,8 +41,39 @@ const WINDOW_LABEL: &str = "main";
 /// 扫描循环句柄槽位：退出时要取出 shutdown，所以套 Option。
 type ScanLoopSlot = Mutex<Option<ScanLoopHandle>>;
 
-/// 转录索引建站的取消旗标槽位。
-struct TranscriptBuildSlot(std::sync::Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>);
+/// 转录索引建站的取消旗标注册表：**每个在飞任务一份旗标**。早先是单一槽位，
+/// 并发建站会互相覆盖旗标、任务结束还会无条件清槽清掉别人的——两个竞态都出
+/// 在"全局只有一份"上，改成按任务登记后各自独立。
+#[derive(Default)]
+struct TranscriptBuildSlot(std::sync::Mutex<Vec<std::sync::Arc<std::sync::atomic::AtomicBool>>>);
+
+impl TranscriptBuildSlot {
+    /// 登记一个建站任务，返回它的专属取消旗标。
+    fn register(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.0
+            .lock()
+            .expect("建站取消槽位锁中毒")
+            .push(std::sync::Arc::clone(&flag));
+        flag
+    }
+
+    /// 任务结束摘除**自己的**旗标：按 Arc 指针身份匹配，后来登记的任务不受影响。
+    fn unregister(&self, flag: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        self.0
+            .lock()
+            .expect("建站取消槽位锁中毒")
+            .retain(|job| !std::sync::Arc::ptr_eq(job, flag));
+    }
+
+    /// 全体在飞任务置取消位。取消命令不带会话身份，多任务全停的代价为零：
+    /// 已建部分均已落库，重开从断点续建。
+    fn cancel_all(&self) {
+        for job in self.0.lock().expect("建站取消槽位锁中毒").iter() {
+            job.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
 
 /// 托盘菜单项句柄：命令要用它改勾选态与文案（跟随界面语言），存 manage 里。
 /// 只在默认运行时（Wry）下使用，不泛型化。
@@ -119,8 +150,8 @@ pub fn run() {
         ))
         // 配置文件写锁：上游/映射增删改串行化（async Mutex 与句柄槽位同一封装）。
         .manage(tauri::async_runtime::Mutex::<()>::new(()))
-        // 转录索引建站的取消旗标槽位（同一时刻至多一个建站任务）。
-        .manage(TranscriptBuildSlot(std::sync::Mutex::new(None)))
+        // 转录索引建站的取消旗标注册表（并发建站各持一份，见类型注释）。
+        .manage(TranscriptBuildSlot(std::sync::Mutex::new(Vec::new())))
         .on_window_event(|window, event| {
             // X 键在托盘开启时不是退出：进托盘（低功耗，窗口真销毁省 webview
             // 内存），扫描循环在壳里照常跑。托盘关闭时放行默认行为（真退出）。
@@ -372,5 +403,36 @@ pub(crate) mod tray_ops {
         let _ = items.scan.set_text(scan);
         let _ = items.low_power.set_text(low_power);
         let _ = items.quit.set_text(quit);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TranscriptBuildSlot;
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
+
+    /// 两个竞态的回归：并发登记互不覆盖旗标；结束摘除只命中自己的条目——
+    /// 早先"单一槽位 + 结束无条件清空"的实现会在这两个场景互相破坏。
+    #[test]
+    fn concurrent_builds_register_independently_and_unregister_is_targeted() {
+        let slot = TranscriptBuildSlot::default();
+        let a = slot.register();
+        let b = slot.register();
+        assert!(!Arc::ptr_eq(&a, &b), "每个任务必须有独立的旗标");
+
+        slot.cancel_all();
+        assert!(a.load(Ordering::Relaxed) && b.load(Ordering::Relaxed));
+
+        // 任务 a 结束：只摘 a，b 仍在注册表且旗标是同一份。
+        slot.unregister(&a);
+        assert_eq!(slot.0.lock().unwrap().len(), 1);
+        assert!(Arc::ptr_eq(&slot.0.lock().unwrap()[0], &b));
+
+        // b 也结束：注册表清空；重复摘除是安全的幂等操作。
+        slot.unregister(&b);
+        assert!(slot.0.lock().unwrap().is_empty());
+        slot.unregister(&b);
+        assert!(slot.0.lock().unwrap().is_empty());
     }
 }
