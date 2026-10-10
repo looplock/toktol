@@ -370,6 +370,22 @@ fn error_response(inbound: Protocol, status: StatusCode, kind: &str, message: &s
     (status, axum::Json(body)).into_response()
 }
 
+/// URL path 段的百分号编码：仅保留 RFC 3986 unreserved 字符，其余转 %XX
+/// （大写十六进制）。Gemini 的模型名拼在路径里，而名字来自客户端请求体或
+/// 映射表、未做字符集校验——`?`/`#`/`/` 等会走私改写请求的路径与查询串。
+fn percent_encode_path_segment(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 /// 从请求头取访问令牌；明文令牌只在本函数内存活，出函数即只剩哈希。
 fn extract_token(headers: &HeaderMap) -> Option<String> {
     if let Some(value) = headers
@@ -518,10 +534,14 @@ async fn proxy(
         Protocol::OpenAI => "/v1/chat/completions".to_string(),
         Protocol::Anthropic => "/v1/messages".to_string(),
         Protocol::Responses => "/v1/responses".to_string(),
-        Protocol::Gemini if stream_requested => {
-            format!("/v1beta/models/{model_forwarded}:streamGenerateContent?alt=sse")
-        }
-        Protocol::Gemini => format!("/v1beta/models/{model_forwarded}:generateContent"),
+        Protocol::Gemini if stream_requested => format!(
+            "/v1beta/models/{}:streamGenerateContent?alt=sse",
+            percent_encode_path_segment(&model_forwarded)
+        ),
+        Protocol::Gemini => format!(
+            "/v1beta/models/{}:generateContent",
+            percent_encode_path_segment(&model_forwarded)
+        ),
     };
     let mut request = state
         .client
@@ -743,6 +763,26 @@ impl RequestMetering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Gemini 路径段编码：安全字符原样、走私字符与非 ASCII 按 UTF-8 字节转义。
+    #[test]
+    fn gemini_path_segment_is_percent_encoded() {
+        assert_eq!(
+            percent_encode_path_segment("gemini-2.0-flash_exp"),
+            "gemini-2.0-flash_exp",
+            "unreserved 字符保持原样"
+        );
+        assert_eq!(
+            percent_encode_path_segment("a/b?c#d:e f"),
+            "a%2Fb%3Fc%23d%3Ae%20f",
+            "路径/查询/片段分隔符必须转义"
+        );
+        assert_eq!(
+            percent_encode_path_segment("模型"),
+            "%E6%A8%A1%E5%9E%8B",
+            "非 ASCII 按 UTF-8 字节转义"
+        );
+    }
 
     #[tokio::test]
     async fn start_falls_back_to_ephemeral_port_when_occupied() {
