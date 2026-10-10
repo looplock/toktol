@@ -3,7 +3,7 @@
  * 那是调用方的语义责任。
  */
 
-import type { NumberUnit } from "./numberUnit";
+import { CHINESE_TOKEN_SUFFIXES, type NumberUnit } from "./numberUnit";
 
 /** 微美元 → "$X.XX"；不足 1 美元给 4 位小数，小额不至于显示成 $0.00。 */
 export function formatCostMicros(micros: number): string {
@@ -38,9 +38,9 @@ export function formatTokens(value: number, unit: NumberUnit): string {
   const units =
     unit === "chinese"
       ? ([
-          { limit: 1e12, suffix: "万亿" },
-          { limit: 1e8, suffix: "亿" },
-          { limit: 1e4, suffix: "万" },
+          { limit: 1e12, suffix: CHINESE_TOKEN_SUFFIXES.trillion },
+          { limit: 1e8, suffix: CHINESE_TOKEN_SUFFIXES.hundredMillion },
+          { limit: 1e4, suffix: CHINESE_TOKEN_SUFFIXES.tenThousand },
         ] as const)
       : ([
           { limit: 1e12, suffix: "T" },

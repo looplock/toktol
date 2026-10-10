@@ -13,6 +13,15 @@ export const NUMBER_UNITS = ["chinese", "english", "plain"] as const;
 /** 单位制：`chinese` 万/亿进位，`english` K/M/B/T 进位，`plain` 千分位不缩写。 */
 export type NumberUnit = (typeof NUMBER_UNITS)[number];
 
+/** 中文单位制的进位后缀（大→小）。这是 `chinese` 偏好的语义本体，不是界面
+ * 文案：用户选了这套单位就永远显示"万亿/亿/万"（同 K/M/B/T 之于 `english`），
+ * 不随界面语言切换——i18n 门禁按此理由豁免本文件。 */
+export const CHINESE_TOKEN_SUFFIXES = {
+  trillion: "万亿",
+  hundredMillion: "亿",
+  tenThousand: "万",
+} as const;
+
 export const DEFAULT_NUMBER_UNIT: NumberUnit = "english";
 
 function parseNumberUnit(value: string | null): NumberUnit | null {

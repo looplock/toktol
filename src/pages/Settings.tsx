@@ -108,7 +108,8 @@ const CHART_ANIMATION_LABEL_KEYS: Record<ChartAnimation, MessageKey> = {
 
 // 语言名用各自的"自称"（中文/English），不随界面语言翻译——这是语言切换器的通行做法。
 const LOCALE_ENDONYMS: Record<Locale, string> = {
-  "zh-CN": "中文",
+  // 语言自称（语言切换器里各语言用自己的名字），不随界面语言翻译——通行做法。
+  "zh-CN": "中文", // i18n-exempt: 语言自称
   en: "English",
 };
 
