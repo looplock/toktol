@@ -36,9 +36,12 @@ export default defineConfig(({ mode }) => ({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: false,
+    // 桌面应用从本地盘加载，不走网络：echarts 与主包各自数百 KiB 是接受了的
+    // 取舍（echarts 单独成块只是为了应用代码改动时它不必重新下载）。上限抬到
+    // 900 KiB 覆盖现状——再往上长仍然告警，防止无意识地继续膨胀。
+    chunkSizeWarningLimit: 900,
     rollupOptions: {
       output: {
-        // echarts 单独成块：应用代码改动时它不必重新下载，也能避开 500kB 的告警。
         manualChunks: { echarts: ["echarts/core", "echarts/charts", "echarts/components", "echarts/renderers"] },
       },
     },
