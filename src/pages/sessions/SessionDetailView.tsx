@@ -28,6 +28,7 @@ import {
   type TranscriptProgressPayload,
   type TranscriptTurn,
 } from "../../lib/api";
+import { modalDialogOpen } from "../../lib/modalGuard";
 import { formatTimestamp, formatTokens } from "../../lib/format";
 import { useNumberUnit } from "../../lib/numberUnit";
 import { listen } from "@tauri-apps/api/event";
@@ -188,10 +189,11 @@ export function SessionDetailView({
     // initialData 仅注入态时跳过拉取，调用方须传稳定引用（现仅测试/harness）。
   }, [row, initialData]);
 
-  // Esc 返回列表：与页面级导航的直觉一致。
+  // Esc 返回列表：与页面级导航的直觉一致。模态弹层打开时让位——弹层自己的
+  // 监听负责关闭它，一次 Esc 不该既关弹层又退出详情。
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !modalDialogOpen()) {
         onBack();
       }
     };

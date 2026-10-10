@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CalendarIcon, CheckIcon, ChevronIcon } from "../ui/icons";
+import { modalDialogOpen } from "../../lib/modalGuard";
 
 export interface DateRange {
   /** 起点当日 00:00（本地时区）。 */
@@ -157,7 +158,8 @@ export function DateRangePicker({
       setPendingStart(null);
     }
     function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
+      // 模态弹层打开时让位（同 modalGuard 的统一互斥）：一次 Esc 只关最上层。
+      if (event.key === "Escape" && !modalDialogOpen()) {
         setOpen(false);
         setPendingStart(null);
       }

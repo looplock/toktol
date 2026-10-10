@@ -18,6 +18,7 @@ import { Switch } from "../../components/ui/Switch";
 import type { Strings } from "../../i18n/strings";
 import type { CardConfig, CardPaletteScheme } from "../../lib/overview/layout";
 import type { BreakdownDimension, ChartKind, Metric } from "../../lib/overview/types";
+import { modalDialogOpen } from "../../lib/modalGuard";
 
 const ICON = {
   viewBox: "0 0 24 24",
@@ -389,13 +390,13 @@ export function CardActions({
     event.currentTarget.releasePointerCapture(event.pointerId);
   }, []);
 
-  // Esc 关闭。
+  // Esc 关闭。模态弹层打开时让位（同 modalGuard 的统一互斥）。
   useEffect(() => {
     if (!open) {
       return undefined;
     }
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !modalDialogOpen()) {
         close();
       }
     };
