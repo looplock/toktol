@@ -173,7 +173,10 @@ impl Adapter for GrokAdapter {
             std::fs::metadata(source_file.with_file_name("tool_definitions.json"))
                 .map(|meta| i64::try_from(meta.len()).unwrap_or(0))
                 .unwrap_or(0);
-        let turns = std::fs::read_to_string(source_file.with_file_name("chat_history.jsonl"))
+        // 旁路明细只服务请求级拆分：超过扫描上限就不读——降级为整回合单行口径
+        //（与明细缺失同路径），扫描绝不因侧文件超限失败或拖进全量读。
+        let history_path = source_file.with_file_name("chat_history.jsonl");
+        let turns = read_history_capped(&history_path, crate::scan::MAX_SCAN_FILE_BYTES)
             .map(|text| turn_request_weights(&text, tool_defs_bytes))
             .unwrap_or_default();
         let anchors = turn_anchors(self, lines);
@@ -214,7 +217,11 @@ impl Adapter for GrokAdapter {
         source_file: &Path,
         _external_id: &str,
     ) -> Result<Vec<TranscriptEntry>> {
-        let text = transcript::read_text(&source_file.with_file_name("chat_history.jsonl"))?;
+        // 旁路转录与登记源同受扫描上限约束：登记源闸门 stat 的是 updates.jsonl，
+        // 这里读的是 chat_history——不补这道闸，TranscriptOversize 形同虚设。
+        let history_path = source_file.with_file_name("chat_history.jsonl");
+        transcript::gate_size(&history_path, crate::scan::MAX_SCAN_FILE_BYTES)?;
+        let text = transcript::read_text(&history_path)?;
         let mut entries = Vec::new();
         for line in text.lines() {
             let Ok(raw) = serde_json::from_str::<ChatLine>(line) else {
@@ -309,6 +316,19 @@ struct RequestWeights {
     output: i64,
     /// assistant 消息携带的 tool_call id：对回 updates.jsonl 的事件锚定时刻。
     call_ids: Vec<String>,
+}
+
+/// 读旁路明细，超过 `max_bytes` 视同缺失（返回 None）：请求级拆分降级为整回合
+/// 单行口径，与明细文件缺失同路径。`max_bytes` 参数化以便测试（真实调用传
+/// `scan::MAX_SCAN_FILE_BYTES`）。
+fn read_history_capped(path: &Path, max_bytes: i64) -> Option<String> {
+    let within = std::fs::metadata(path)
+        .map(|meta| i64::try_from(meta.len()).unwrap_or(i64::MAX) <= max_bytes)
+        .unwrap_or(false);
+    if !within {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
 }
 
 /// chat_history 分段出每回合的请求权重。回合 = 非合成 user 行开启，请求 =
@@ -912,6 +932,29 @@ struct ModelUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 旁路明细超限视同缺失（拆分降级为单行口径），缺失与正常读取行为不变。
+    #[test]
+    fn history_read_is_capped() {
+        let dir = std::env::temp_dir().join(format!("toktol-grok-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("chat_history.jsonl");
+        std::fs::write(&path, "{\"type\":\"user\"}").unwrap();
+
+        assert!(read_history_capped(&path, 1024).is_some(), "限额内正常读");
+        assert_eq!(
+            read_history_capped(&path, 4),
+            None,
+            "超上限视同缺失（降级单行口径）"
+        );
+        assert_eq!(
+            read_history_capped(&dir.join("missing.jsonl"), 1024),
+            None,
+            "缺失视同缺失"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     const TURN: &str = r#"{"timestamp":1789204709,"method":"_x.ai/session/update","params":{"sessionId":"01a094e9-06d7","update":{"sessionUpdate":"turn_completed","prompt_id":"1377dc75","stop_reason":"end_turn","usage":{"inputTokens":30928,"outputTokens":821,"totalTokens":31749,"cachedReadTokens":13312,"cacheCreationTokens":0,"reasoningTokens":139,"modelCalls":2,"modelUsage":{"deepseek/deepseek-v4-flash-0731":{"inputTokens":30928,"outputTokens":821,"totalTokens":31749,"cachedReadTokens":13312,"cacheCreationTokens":0,"reasoningTokens":139,"modelCalls":2}}},"numTurns":2}}}"#;
 

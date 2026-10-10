@@ -168,6 +168,22 @@ pub(crate) fn read_text(path: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// 旁路转录文件的大小闸门。登记源的闸门（sessions 的 gate_read_size）stat 的
+/// 是登记文件，而适配器实际读的可能是同目录旁路文件（grok 的 chat_history.jsonl、
+/// codebuddy 的 index.json 与 messages/*）——旁路文件与登记源同受扫描单文件
+/// 上限约束，不补这道闸，`TranscriptOversize` 对这类工具形同虚设。
+/// `max_bytes` 参数化以便测试（真实调用传 `scan::MAX_SCAN_FILE_BYTES`）。
+pub(crate) fn gate_size(path: &Path, max_bytes: i64) -> Result<()> {
+    let meta = std::fs::metadata(path).map_err(|source| Error::DataFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if i64::try_from(meta.len()).unwrap_or(i64::MAX) > max_bytes {
+        return Err(Error::TranscriptOversize);
+    }
+    Ok(())
+}
+
 /// 日志内容字段的归一入口：字符串、内容块数组、单个块对象都接受。
 ///
 /// WorkBuddy 的图片附件按"blob 引用块 + 紧跟的本地路径文本"成对记在同一
@@ -824,6 +840,27 @@ pub(crate) fn pi_style_transcript(lines: &[&str], external_id: &str) -> Vec<Tran
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// 旁路文件闸门：超上限报 TranscriptOversize，正常放行，缺失报 DataFile。
+    #[test]
+    fn gate_size_rejects_oversize_side_files() {
+        let dir = std::env::temp_dir().join(format!("toktol-gate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("side.jsonl");
+        std::fs::write(&path, "0123456789").unwrap();
+
+        assert!(matches!(
+            gate_size(&path, 5),
+            Err(Error::TranscriptOversize)
+        ));
+        assert!(gate_size(&path, 100).is_ok());
+        assert!(matches!(
+            gate_size(&dir.join("missing.jsonl"), 100),
+            Err(Error::DataFile { .. })
+        ));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn string_content_becomes_single_text_block() {

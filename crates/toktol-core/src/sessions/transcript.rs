@@ -135,17 +135,12 @@ fn resolve(
     external_id: &str,
 ) -> Result<(crate::storage::SessionInfo, Box<dyn Adapter>, String)> {
     let Some(info) = storage.session_info_by_external(tool, external_id)? else {
-        return Err(Error::Internal(format!(
-            "session not found: {tool}/{external_id}"
-        )));
+        return Err(Error::NotFound(format!("session: {tool}/{external_id}")));
     };
     let t = super::parse_tool(&info.tool)?;
     let adapter = super::find_adapter(t)?;
     let Some(registered) = storage.scanned_file_path(info.source_file_id)? else {
-        return Err(Error::Internal(format!(
-            "session {} has no source file",
-            info.id
-        )));
+        return Err(Error::NotFound(format!("session {} source file", info.id)));
     };
     let source = adapter
         .resolve_transcript_source(Path::new(&registered), &info.external_id)?
@@ -760,9 +755,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let storage = test_db("errors");
 
-        // 会话不存在。
+        // 会话不存在：core.not_found（会话已删/未入库，非程序 bug）。
         let err = session_transcript(&storage, "claude-code", "nope").unwrap_err();
-        assert_eq!(err.code().as_str(), "core.internal");
+        assert_eq!(err.code().as_str(), "core.not_found");
 
         // 不支持转录的工具（codebuddy，消息正文只在云端）：core.unsupported。
         let log = dir.join("codebuddy-sessions.vscdb");

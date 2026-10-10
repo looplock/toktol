@@ -486,4 +486,11 @@ pub(super) const MIGRATIONS: &[&str] = &[
     "
     UPDATE scanned_files SET parsed_bytes = 0 WHERE tool = 'workbuddy';
     ",
+    // v25：usage_records.session_id 索引——会话页聚合（LEFT JOIN + GROUP BY +
+    // ORDER BY SUM）、删除会话的归属置空（UPDATE … WHERE session_id = ?）、
+    // dashboard 活跃段排序都按该列访问，无索引即全表扫/大规模临时排序。
+    // IF NOT EXISTS：后段迁移必须可重入（v18 注）。
+    "
+    CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_records (session_id);
+    ",
 ];

@@ -267,16 +267,27 @@ impl Adapter for CodeBuddyAdapter {
         if !index_path.exists() {
             return Err(Error::Unsupported);
         }
+        // 旁路转录与登记源同受扫描上限约束：登记源闸门 stat 的是 .vscdb，这里
+        // 读的 index 与消息文件它管不着——index 超限直接拒绝，消息文件走累计
+        // 读取量预算，超限即拒绝，不拖进无界全量读。
+        transcript::gate_size(&index_path, crate::scan::MAX_SCAN_FILE_BYTES)?;
         let index: HistoryIndex = serde_json::from_str(&transcript::read_text(&index_path)?)
             .map_err(|_| Error::Unsupported)?;
         if index.messages.is_empty() {
             return Err(Error::Unsupported);
         }
+        let mut read_budget = crate::scan::MAX_SCAN_FILE_BYTES;
         let mut entries = Vec::new();
         for reference in &index.messages {
             // 单个消息文件缺失/损坏只跳该条：历史缓存是 IDE 维护的，个别
             // 文件不齐不拖垮整条转录（与 grok 按行跳坏行同口径）。
             let path = dir.join("messages").join(format!("{}.json", reference.id));
+            if let Ok(meta) = std::fs::metadata(&path) {
+                read_budget -= i64::try_from(meta.len()).unwrap_or(i64::MAX);
+                if read_budget < 0 {
+                    return Err(Error::TranscriptOversize);
+                }
+            }
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
