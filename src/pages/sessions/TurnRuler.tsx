@@ -20,6 +20,8 @@ import {
 } from "react";
 import type { TranscriptTurn } from "../../lib/api";
 import type { Strings } from "../../i18n/strings";
+import { formatTimeShort } from "../../lib/format";
+import { useLocale } from "../../lib/locale";
 import type { OutlineListHandle } from "./OutlineList";
 import { ImageIcon } from "../../components/ui/icons";
 
@@ -56,6 +58,7 @@ export const TurnRuler = forwardRef<
     readonly onJump: (index: number) => void;
   }
 >(function TurnRuler({ turns, strings, initialTurn, onJump }, ref) {
+  const locale = useLocale();
   const asideRef = useRef<HTMLElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stackRef = useRef<HTMLDivElement>(null);
@@ -295,7 +298,7 @@ export const TurnRuler = forwardRef<
           <p className="text-xs text-ink-muted">
             {strings.sessionsRulerTurn.replace("{n}", String(hoverIdx + 1))}
             {hoveredTurn.tsMs !== null &&
-              ` · ${new Date(hoveredTurn.tsMs).toLocaleTimeString([], { hour12: false })}`}
+              ` · ${formatTimeShort(hoveredTurn.tsMs, locale)}`}
           </p>
           {hoveredTurn.isSummary ? (
             <p className="mt-1 text-xs text-ink">{strings.transcriptCompacted}</p>

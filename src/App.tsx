@@ -35,7 +35,13 @@ import {
   storeChartAnimation,
   type ChartAnimation,
 } from "./lib/chartAnimation";
-import { DEFAULT_LOCALE, readStoredLocale, storeLocale, type Locale } from "./lib/locale";
+import {
+  DEFAULT_LOCALE,
+  LocaleContext,
+  readStoredLocale,
+  storeLocale,
+  type Locale,
+} from "./lib/locale";
 import { DEFAULT_PAGE, PAGE_ORDER, type PageId, type SessionFocus } from "./lib/routes";
 import { readStoredPage, storePage } from "./lib/lastPage";
 import { scanToastBacklogDetail, scanToastDetail, type ScanToastKind } from "./lib/scanToast";
@@ -232,6 +238,7 @@ export default function App() {
         >
           <NumberUnitContext.Provider value={numberUnit}>
             <ChartAnimationContext.Provider value={chartAnimation}>
+            <LocaleContext.Provider value={locale}>
             <PageView
               page={page}
               strings={strings}
@@ -258,6 +265,7 @@ export default function App() {
               onOpenSession={openSession}
               onFocusConsumed={consumeFocus}
             />
+            </LocaleContext.Provider>
             </ChartAnimationContext.Provider>
           </NumberUnitContext.Provider>
         </div>

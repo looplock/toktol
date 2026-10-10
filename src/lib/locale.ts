@@ -3,6 +3,8 @@
  * 加语言：LOCALES 加值 + strings.ts 的 TABLE 补表（少一张编译报错）。
  */
 
+import { createContext, useContext } from "react";
+
 import { LS_KEY_LOCALE } from "../constants";
 
 /** 可用的界面语言。 */
@@ -44,4 +46,12 @@ export function storeLocale(
   } catch {
     // 静默跳过：写不进去也不该影响本次会话。
   }
+}
+
+export const LocaleContext = createContext<Locale>(DEFAULT_LOCALE);
+
+/** 取当前界面语言：Intl 格式化的第一参。日期/时间不落回宿主 locale——
+ * 宿主语言与界面语言无关（同 numberUnit 的 context 下发，设置页走显式 props）。 */
+export function useLocale(): Locale {
+  return useContext(LocaleContext);
 }

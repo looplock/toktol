@@ -5,6 +5,7 @@ import {
   formatCostMicrosExact,
   formatCount,
   formatDayRange,
+  formatTimeShort,
   formatTimestamp,
   formatTokens,
 } from "./format";
@@ -130,5 +131,14 @@ describe("formatTimestamp", () => {
     expect(formatTimestamp(new Date(2026, 0, 1, 0, 0, 0).getTime())).toBe(
       "2026-01-01 00:00:00",
     );
+  });
+});
+
+describe("formatTimeShort", () => {
+  it("formats 24-hour HH:mm:ss for the given locale", () => {
+    // 本地时区构造输入，期望值与时区无关；显式传界面语言，不随宿主 locale 漂移。
+    const ms = new Date(2026, 8, 26, 14, 5, 3).getTime();
+    expect(formatTimeShort(ms, "zh-CN")).toBe("14:05:03");
+    expect(formatTimeShort(ms, "en")).toBe("14:05:03");
   });
 });

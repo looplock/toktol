@@ -141,3 +141,14 @@ export function formatTimestamp(ms: number): string {
     `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
   );
 }
+
+/** epoch ms → 24 小时制短时间（"14:23:05"）：按传入的界面语言格式化，
+ * 不落回宿主 locale（格式化结果随界面语言切换，不随系统设置漂移）。 */
+export function formatTimeShort(ms: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(ms);
+}

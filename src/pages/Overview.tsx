@@ -21,6 +21,7 @@ import { type MultiSelectOption } from "../components/data/MultiSelect";
 import type { Strings } from "../i18n/strings";
 import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { formatCount } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { dropDisabled, filterDimensions, timePresetsOf, weekdaysOf } from "../lib/filters";
 import { toolLabel } from "../lib/tools";
 import {
@@ -76,11 +77,11 @@ function mockRangeOf(time: TimeSelection): TimeRange {
 }
 
 /**
- * 载荷 → 卡片数据：趋势 label 按 grain 本地化，其余字段原样。
+ * 载荷 → 卡片数据：趋势 label 按 grain + 界面语言本地化，其余字段原样。
  * label 不在 Rust 侧生成——本地化文案是前端的事。
  */
-function hydrate(payload: DashboardPayload): DashboardData {
-  const labelOf = labelFormatter(payload.trendGrain);
+function hydrate(payload: DashboardPayload, locale: string): DashboardData {
+  const labelOf = labelFormatter(payload.trendGrain, locale);
 
   return {
     totals: payload.totals,
@@ -101,8 +102,9 @@ function hydrate(payload: DashboardPayload): DashboardData {
   };
 }
 
-/** 小时桶的 label 手写（Intl 的小时带上午下午太长）；天/月按运行语言格式化。 */
-function labelFormatter(grain: TrendGrain): (ms: number) => string {
+/** 小时桶的 label 手写（Intl 的小时带上午下午太长）；天/月按界面语言格式化
+ * （Intl 第一参取运行语言，不落回宿主 locale——两者无关）。 */
+function labelFormatter(grain: TrendGrain, locale: string): (ms: number) => string {
   if (grain === "hour") {
     return (ms) => {
       const date = new Date(ms);
@@ -110,7 +112,7 @@ function labelFormatter(grain: TrendGrain): (ms: number) => string {
     };
   }
   const fmt = new Intl.DateTimeFormat(
-    undefined,
+    locale,
     grain === "day"
       ? { month: "numeric", day: "numeric" }
       : { year: "numeric", month: "numeric" },
@@ -184,6 +186,7 @@ export function OverviewPage({
   scanVersion,
   initialDashboard,
 }: OverviewPageProps) {
+  const locale = useLocale();
   const [doc, setDoc] = useState<LayoutDoc>(() =>
     withDefaults(DEFAULT_WIDGETS, readLayout()),
   );
@@ -230,7 +233,10 @@ export function OverviewPage({
         ? Promise.all([
             fetchOverview(filters, disabledTools),
             fetchOverview(baseFilters, disabledTools),
-          ]).then(([payload, basePayload]) => [hydrate(payload), hydrate(basePayload)])
+          ]).then(([payload, basePayload]) => [
+            hydrate(payload, locale),
+            hydrate(basePayload, locale),
+          ])
         : Promise.all([
             buildMockDashboard(mockRangeOf(time), {
               tools: toolSel,
