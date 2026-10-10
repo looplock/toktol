@@ -8,12 +8,12 @@
 
 pub mod scheduler;
 
+use crate::now_ms;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -693,12 +693,6 @@ fn apply_facts(ctx: &mut FactContext, raw_line: &str, facts: LineFacts) -> Resul
         }
     }
     Ok(())
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 #[cfg(test)]

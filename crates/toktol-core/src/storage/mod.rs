@@ -29,12 +29,8 @@ const BUSY_TIMEOUT_MS: u64 = 5_000;
 
 const MICROS_PER_MTK: i64 = 1_000_000;
 
-/// 当前时间（epoch ms）；时钟回拨/溢出按 0 兜底，只影响 updated_at 语义。
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-}
+/// 时间戳统一走 core 的单一实现（子模块经 `use super::*` 拿到这个再导出）。
+pub(crate) use crate::now_ms;
 
 /// 定价页载荷的子结构（camelCase 与父级一致）。
 pub mod pricing_overview {

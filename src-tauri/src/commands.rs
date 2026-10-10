@@ -9,7 +9,7 @@
 use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 use toktol_core::error::ErrorCode;
-use toktol_core::{VERSION, paths, pricing, scan, sessions, storage};
+use toktol_core::{VERSION, now_ms, paths, pricing, scan, sessions, storage};
 use toktol_gateway::proxy::{self, GatewayHandle, GatewayStatus};
 
 /// 网关运行句柄的壳内槽位。async Mutex：start 是 async 且持锁跨 await，
@@ -584,13 +584,6 @@ pub async fn confirm_model(model_id: String) -> Result<usize, String> {
     })
     .await
     .map_err(|_| ErrorCode::Internal.as_str().to_string())?
-}
-
-/// 当前时间（epoch ms）：IPC 层只给 updated_at 打戳用。
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 // ---- 托盘（"后台与托盘"设置区）。实现都在 lib.rs 的 tray_ops，这里只转发。 ----

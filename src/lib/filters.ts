@@ -9,6 +9,9 @@ import {
   type TimePreset,
   type TimeSelection,
 } from "../components/data/DateRangePicker";
+import type { FilterDimension } from "../components/data/FilterToolbar";
+import type { MultiSelectOption } from "../components/data/MultiSelect";
+import { toggleValue } from "./sets";
 
 export interface TimePresetOption {
   readonly id: TimePreset;
@@ -38,13 +41,64 @@ export function defaultTimeSelection(): TimeSelection {
   return { preset: "today", range: presetRange("today", Date.now()) };
 }
 
-/** 切换集合里的一个值：选中状态是不可变的，返回新集合。 */
-export function toggleValue(
-  set: ReadonlySet<string>,
-  value: string,
-): Set<string> {
-  const next = new Set(set);
-  if (!next.delete(value)) next.add(value);
+/**
+ * 从选中集合里摘掉被禁用的工具：选项已不可见，留着等于永远少一块、解释不清
+ * 的数据。两处短路（空禁用清单、实际没摘掉任何项）都返回原引用——状态没变
+ * 就别触发重渲染。
+ */
+export function dropDisabled(
+  current: ReadonlySet<string>,
+  disabled: readonly string[],
+): ReadonlySet<string> {
+  if (disabled.length === 0) return current;
 
-  return next;
+  const next = new Set(current);
+  for (const id of disabled) next.delete(id);
+
+  return next.size === current.size ? current : next;
+}
+
+/** 维度状态的下推口：页面传 setState 的 dispatch，这里只发不可变更新。 */
+type SelectionUpdater = (current: ReadonlySet<string>) => ReadonlySet<string>;
+type SelectionSetter = (updater: ReadonlySet<string> | SelectionUpdater) => void;
+
+/**
+ * 筛选条三个维度（工具/模型/项目）的构建：总览与明细页同一份——onToggle 的
+ * 不可变切换与 onClear 的清空各写一份必然漂移。文案与选项由调用方给
+ * （两页的标签措辞不同，选项的图标/计数来源也不同）。
+ */
+export function filterDimensions(input: {
+  labels: { readonly tool: string; readonly model: string; readonly project: string };
+  options: {
+    readonly tool: readonly MultiSelectOption[];
+    readonly model: readonly MultiSelectOption[];
+    readonly project: readonly MultiSelectOption[];
+  };
+  selection: {
+    readonly tool: ReadonlySet<string>;
+    readonly model: ReadonlySet<string>;
+    readonly project: ReadonlySet<string>;
+  };
+  setters: { readonly tool: SelectionSetter; readonly model: SelectionSetter; readonly project: SelectionSetter };
+}): FilterDimension[] {
+  const build = (
+    id: FilterDimension["id"],
+    label: string,
+    options: readonly MultiSelectOption[],
+    selected: ReadonlySet<string>,
+    setter: SelectionSetter,
+  ): FilterDimension => ({
+    id,
+    label,
+    options,
+    selected,
+    onToggle: (value) => setter((current) => toggleValue(current, value)),
+    onClear: () => setter(new Set<string>()),
+  });
+
+  return [
+    build("tool", input.labels.tool, input.options.tool, input.selection.tool, input.setters.tool),
+    build("model", input.labels.model, input.options.model, input.selection.model, input.setters.model),
+    build("project", input.labels.project, input.options.project, input.selection.project, input.setters.project),
+  ];
 }

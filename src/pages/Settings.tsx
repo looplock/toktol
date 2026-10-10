@@ -10,6 +10,7 @@ import { useState } from "react";
 
 import { Card } from "../components/ui/Card";
 import { PageShell } from "../components/PageShell";
+import { SideNav } from "../components/ui/SideNav";
 import { Switch } from "../components/ui/Switch";
 import { Segmented, type SegmentedOption } from "../components/ui/Segmented";
 import type { MessageKey, Strings } from "../i18n/strings";
@@ -178,32 +179,12 @@ export function SettingsPage({
     /* fill：两栏卡片顶满页面高度（同网关页）；设置页以分区导航为骨架，页面标题是多余的。 */
     <PageShell fill>
       <div className="grid min-h-0 flex-1 grid-cols-[230px_minmax(0,1fr)] gap-4">
-        <Card
-          as="nav"
-          aria-label={strings.navSettings}
-          raised
-          padding="p-2"
-          className="self-stretch"
-        >
-          {/* 项间留 1 档空隙：相邻项的高亮/悬浮底色不能连成一片（同网关页导航）。 */}
-          <div className="space-y-1">
-            {SECTIONS.map((id) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setSection(id)}
-                aria-current={section === id}
-                className={`block w-full rounded-control px-3 py-2 text-left text-sm transition-colors ${
-                  section === id
-                    ? "bg-accent/10 font-medium text-ink"
-                    : "text-ink-muted hover:bg-accent/5 hover:text-ink"
-                }`}
-              >
-                {strings[SECTION_LABEL_KEYS[id]]}
-              </button>
-            ))}
-          </div>
-        </Card>
+        <SideNav
+          label={strings.navSettings}
+          items={SECTIONS.map((id) => ({ id, label: strings[SECTION_LABEL_KEYS[id]] }))}
+          active={section}
+          onChange={setSection}
+        />
 
         <Card className="min-h-0 overflow-y-auto">
           {SECTIONS.map((id) => (

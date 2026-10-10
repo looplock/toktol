@@ -32,6 +32,7 @@ import {
 } from "../lib/api";
 import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { formatTimestamp } from "../lib/format";
+import { setPresence, toggleValue } from "../lib/sets";
 import type { SessionFocus } from "../lib/routes";
 import { SessionDetailView } from "./sessions/SessionDetailView";
 
@@ -188,41 +189,21 @@ export function SessionsPage({
     pageData.rows.every((row) => checkedIds.has(row.id));
 
   const toggleTool = (toolId: string) => {
-    setToolFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(toolId)) {
-        next.delete(toolId);
-      } else {
-        next.add(toolId);
-      }
-      return next;
-    });
+    setToolFilter((prev) => toggleValue(prev, toolId));
   };
 
   const toggleChecked = (id: number) => {
-    setCheckedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+    setCheckedIds((prev) => toggleValue(prev, id));
   };
 
   const togglePage = () => {
-    setCheckedIds((prev) => {
-      const next = new Set(prev);
-      for (const row of pageData.rows) {
-        if (allPageChecked) {
-          next.delete(row.id);
-        } else {
-          next.add(row.id);
-        }
-      }
-      return next;
-    });
+    setCheckedIds((prev) =>
+      setPresence(
+        prev,
+        pageData.rows.map((row) => row.id),
+        !allPageChecked,
+      ),
+    );
   };
 
   const clearChecked = () => {
@@ -271,14 +252,9 @@ export function SessionsPage({
         setSelected((prev) =>
           prev !== null && prev.id === sessionId ? null : prev,
         );
-        setCheckedIds((prev) => {
-          if (!prev.has(sessionId)) {
-            return prev;
-          }
-          const next = new Set(prev);
-          next.delete(sessionId);
-          return next;
-        });
+        setCheckedIds((prev) =>
+          prev.has(sessionId) ? toggleValue(prev, sessionId) : prev,
+        );
         refreshList();
       })
       .catch((err: unknown) => {

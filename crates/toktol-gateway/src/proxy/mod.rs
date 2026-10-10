@@ -5,7 +5,9 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
+
+use toktol_core::now_ms;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
@@ -348,12 +350,6 @@ async fn responses_entry(
     body: Bytes,
 ) -> Response {
     proxy(State(state), headers, body, Protocol::Responses).await
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 /// OpenAI 风格错误体；Anthropic 入站时换成 Anthropic 的 error 信封。

@@ -21,7 +21,7 @@ import { type MultiSelectOption } from "../components/data/MultiSelect";
 import type { Strings } from "../i18n/strings";
 import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { formatCount } from "../lib/format";
-import { timePresetsOf, toggleValue, weekdaysOf } from "../lib/filters";
+import { dropDisabled, filterDimensions, timePresetsOf, weekdaysOf } from "../lib/filters";
 import { toolLabel } from "../lib/tools";
 import {
   DEFAULT_CARD_CONFIG,
@@ -166,15 +166,6 @@ function rowsToOptions(
       count: row.calls,
     }))
     .sort((a, b) => b.count - a.count);
-}
-
-function dropDisabled(
-  current: ReadonlySet<string>,
-  disabled: readonly string[],
-): ReadonlySet<string> {
-  const next = new Set([...current].filter((value) => !disabled.includes(value)));
-  // 没摘掉任何项就返回原引用：状态不变时别触发重渲染。
-  return next.size === current.size ? current : next;
 }
 
 interface OverviewPageProps {
@@ -379,35 +370,17 @@ export function OverviewPage({
   }, [cardData]);
 
   const dimensions = useMemo<FilterDimension[]>(
-    () => [
-      {
-        id: "tool",
-        label: strings.filterTool,
-        options: toolOptions,
-        selected: toolSel,
-        onToggle: (value) =>
-          setToolSel((current) => toggleValue(current, value)),
-        onClear: () => setToolSel(new Set()),
-      },
-      {
-        id: "model",
-        label: strings.filterModel,
-        options: modelOptions,
-        selected: modelSel,
-        onToggle: (value) =>
-          setModelSel((current) => toggleValue(current, value)),
-        onClear: () => setModelSel(new Set()),
-      },
-      {
-        id: "project",
-        label: strings.filterProject,
-        options: projectOptions,
-        selected: projectSel,
-        onToggle: (value) =>
-          setProjectSel((current) => toggleValue(current, value)),
-        onClear: () => setProjectSel(new Set()),
-      },
-    ],
+    () =>
+      filterDimensions({
+        labels: {
+          tool: strings.filterTool,
+          model: strings.filterModel,
+          project: strings.filterProject,
+        },
+        options: { tool: toolOptions, model: modelOptions, project: projectOptions },
+        selection: { tool: toolSel, model: modelSel, project: projectSel },
+        setters: { tool: setToolSel, model: setModelSel, project: setProjectSel },
+      }),
     [
       strings,
       toolOptions,

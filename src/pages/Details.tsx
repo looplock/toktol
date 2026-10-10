@@ -32,7 +32,7 @@ import type { Strings } from "../i18n/strings";
 import type { InputScope } from "../lib/inputScope";
 import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
 import { modelIcon, toolIcon, type BrandIconAsset } from "../lib/brandIcons";
-import { defaultTimeSelection, timePresetsOf, toggleValue, weekdaysOf } from "../lib/filters";
+import { defaultTimeSelection, dropDisabled, filterDimensions, timePresetsOf, weekdaysOf } from "../lib/filters";
 import type { SessionFocus } from "../lib/routes";
 import { toolLabel } from "../lib/tools";
 import { buildColumns } from "./details/DetailsColumns";
@@ -183,35 +183,17 @@ export function DetailsPage({
   );
 
   const dimensions = useMemo<FilterDimension[]>(
-    () => [
-      {
-        id: "tool",
-        label: strings.detailsColTool,
-        options: toolOptions,
-        selected: toolSel,
-        onToggle: (value) =>
-          setToolSel((current) => toggleValue(current, value)),
-        onClear: () => setToolSel(new Set()),
-      },
-      {
-        id: "model",
-        label: strings.detailsColModel,
-        options: modelOptions,
-        selected: modelSel,
-        onToggle: (value) =>
-          setModelSel((current) => toggleValue(current, value)),
-        onClear: () => setModelSel(new Set()),
-      },
-      {
-        id: "project",
-        label: strings.detailsColProject,
-        options: projectOptions,
-        selected: projectSel,
-        onToggle: (value) =>
-          setProjectSel((current) => toggleValue(current, value)),
-        onClear: () => setProjectSel(new Set()),
-      },
-    ],
+    () =>
+      filterDimensions({
+        labels: {
+          tool: strings.detailsColTool,
+          model: strings.detailsColModel,
+          project: strings.detailsColProject,
+        },
+        options: { tool: toolOptions, model: modelOptions, project: projectOptions },
+        selection: { tool: toolSel, model: modelSel, project: projectSel },
+        setters: { tool: setToolSel, model: setModelSel, project: setProjectSel },
+      }),
     [
       strings,
       toolOptions,
@@ -338,19 +320,4 @@ function toMultiOption(
     count: option.count,
     ...(icon === undefined ? {} : { icon }),
   };
-}
-
-/** 从选中集合里摘掉被禁用的工具。 */
-function dropDisabled(
-  selected: ReadonlySet<string>,
-  disabled: readonly string[],
-): ReadonlySet<string> {
-  if (disabled.length === 0) {
-    return selected;
-  }
-  const next = new Set(selected);
-  for (const id of disabled) {
-    next.delete(id);
-  }
-  return next;
 }

@@ -36,6 +36,15 @@ pub mod sessions;
 pub mod storage;
 pub mod toolconfig;
 
+/// 当前时间（epoch 毫秒）：打戳类场景（记录 updated_at、计量请求到达时刻）
+/// 统一走这里。时钟倒流（duration_since 失败）按 0，超出 i64 按最大值——
+/// 时间戳只用于排序与展示，绝不 panic。
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
 /// 适配器统一接口：外部调用方从这里拿契约与已注册的适配器，不深入子模块。
 pub use adapter::{Adapter, adapters};
 

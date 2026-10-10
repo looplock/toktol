@@ -14,6 +14,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { Segmented, type SegmentedOption } from "../../components/ui/Segmented";
+import { Switch } from "../../components/ui/Switch";
 import type { Strings } from "../../i18n/strings";
 import type { CardConfig, CardPaletteScheme } from "../../lib/overview/layout";
 import type { BreakdownDimension, ChartKind, Metric } from "../../lib/overview/types";
@@ -232,36 +233,6 @@ function ChartPicker({
         );
       })}
     </fieldset>
-  );
-}
-
-/** 开关：外观组的小拨杆。语义给 role="switch"，外观自己画。 */
-function Toggle({
-  checked,
-  label,
-  onChange,
-}: {
-  readonly checked: boolean;
-  readonly label: string;
-  readonly onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-4 w-7 shrink-0 cursor-pointer rounded-full transition-colors ${
-        checked ? "bg-accent" : "bg-surface-muted"
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 h-3 w-3 rounded-full bg-surface-raised transition-[left] ${
-          checked ? "left-3.5" : "left-0.5"
-        }`}
-      />
-    </button>
   );
 }
 
@@ -592,27 +563,31 @@ export function CardActions({
         </SettingRow>
         {kindAppearance.legend ? (
           <SettingRow label={strings.settingShowLegend}>
-            <Toggle
+            {/* SettingRow 的可见标签在左，开关文字对读屏保留即可。 */}
+            <Switch
               checked={config.showLegend ?? true}
               label={strings.settingShowLegend}
+              labelHidden
               onChange={(showLegend) => onConfigChange({ ...config, showLegend })}
             />
           </SettingRow>
         ) : null}
         {kindAppearance.gridLines ? (
           <SettingRow label={strings.settingShowGridLines}>
-            <Toggle
+            <Switch
               checked={config.showGridLines ?? true}
               label={strings.settingShowGridLines}
+              labelHidden
               onChange={(showGridLines) => onConfigChange({ ...config, showGridLines })}
             />
           </SettingRow>
         ) : null}
         {kindAppearance.yAxisZero ? (
           <SettingRow label={strings.settingYAxisFromZero}>
-            <Toggle
+            <Switch
               checked={config.yAxisFromZero ?? false}
               label={strings.settingYAxisFromZero}
+              labelHidden
               onChange={(yAxisFromZero) => onConfigChange({ ...config, yAxisFromZero })}
             />
           </SettingRow>

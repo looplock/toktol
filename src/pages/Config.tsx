@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { PageShell } from "../components/PageShell";
+import { SideNav } from "../components/ui/SideNav";
 import {
   ChevronIcon,
   FileIcon,
@@ -27,6 +28,7 @@ import {
   type ToolConfigReport,
 } from "../lib/api";
 import { useInvokeQuery } from "../lib/hooks/useInvokeQuery";
+import { toggleValue } from "../lib/sets";
 import { TOOL_ITEMS } from "../lib/tools";
 import type { MessageKey, Strings } from "../i18n/strings";
 
@@ -77,33 +79,16 @@ export function ConfigPage({ strings, initial, initialTab }: ConfigPageProps) {
     <PageShell fill>
       {/* 布局同设置页：固定侧栏列 + 内容列 minmax(0,1fr)，两卡撑满页高。 */}
       <div className="grid min-h-0 flex-1 grid-cols-[230px_minmax(0,1fr)] gap-4">
-        <Card
-          as="nav"
-          aria-label={strings.configSidebarTitle}
-          raised
-          padding="p-2"
-          className="self-stretch"
-        >
-          {/* 项间留 1 档空隙：相邻项的高亮/悬浮底色不能连成一片（同设置页导航）。 */}
-          <div className="space-y-1">
-            {TOOL_ITEMS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setToolId(item.id)}
-                aria-current={item.id === toolId}
-                className={`flex w-full items-center gap-2.5 rounded-control px-3 py-2 text-left text-sm transition-colors ${
-                  item.id === toolId
-                    ? "bg-accent/10 font-medium text-ink"
-                    : "text-ink hover:bg-accent/5"
-                }`}
-              >
-                <ToolIcon toolId={item.id} />
-                <span className="truncate">{item.label}</span>
-              </button>
-            ))}
-          </div>
-        </Card>
+        <SideNav
+          label={strings.configSidebarTitle}
+          items={TOOL_ITEMS.map((item) => ({
+            id: item.id,
+            label: item.label,
+            icon: <ToolIcon toolId={item.id} />,
+          }))}
+          active={toolId}
+          onChange={setToolId}
+        />
 
       <Card padding="none" className="flex min-h-0 min-w-0 flex-col">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
@@ -456,15 +441,7 @@ function FilesPane({
   }, [report]);
 
   function toggleDir(rel: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(rel)) {
-        next.delete(rel);
-      } else {
-        next.add(rel);
-      }
-      return next;
-    });
+    setExpanded((prev) => toggleValue(prev, rel));
   }
 
   // 技能详情"在文件中打开"：直接按 (root, rel) 选中并拉内容——rel 可能比
