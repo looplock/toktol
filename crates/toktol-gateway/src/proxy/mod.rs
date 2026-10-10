@@ -263,6 +263,14 @@ async fn bind_with_fallback(
     }
 }
 
+/// 出站读超时（idle）：上游连上后两次可读之间的最大间隔，流式与非流式共用。
+/// 长思考/长生成是"慢但有进展"，不拦；真死连接（代理故障、半开 TCP）在间隔
+/// 内掐断，handler 不至于永不返回。
+const UPSTREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// 非流式响应体的整体上限：idle 超时拦不住"有节奏地无限流"的病态上游。
+const UPSTREAM_BODY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// 已绑定 listener 的启动形式：测试用 0 端口拿真实地址，不必与时间赛跑抢固定端口。
 pub async fn serve_on(
     listener: tokio::net::TcpListener,
@@ -275,6 +283,7 @@ pub async fn serve_on(
         db_path,
         client: reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
+            .read_timeout(UPSTREAM_IDLE_TIMEOUT)
             .build()
             .map_err(|e| Error::Internal(format!("http client: {e}")))?,
     });
@@ -368,6 +377,21 @@ fn error_response(inbound: Protocol, status: StatusCode, kind: &str, message: &s
         }
     };
     (status, axum::Json(body)).into_response()
+}
+
+/// 非流式体收集失败（读错误/整体超时）的统一出口：按上游失败返回 502，
+/// 计量照做（usage 缺省——半截响应没有可信用量）。
+async fn upstream_body_failure(
+    inbound: Protocol,
+    meter: RequestMetering,
+    status: reqwest::StatusCode,
+    detail: &str,
+) -> axum::response::Response {
+    // 计量含 SQLite 开库与迁移，是阻塞调用——spawn_blocking 让出 worker 线程。
+    tokio::task::spawn_blocking(move || meter.record(None, status))
+        .await
+        .ok();
+    error_response(inbound, StatusCode::BAD_GATEWAY, "upstream_error", detail)
 }
 
 /// URL path 段的百分号编码：仅保留 RFC 3986 unreserved 字符，其余转 %XX
@@ -619,7 +643,27 @@ async fn proxy(
     }
 
     if !is_stream {
-        let body_bytes = upstream_response.bytes().await.unwrap_or_default();
+        // 非流式体收集带整体超时；读错误也不再吞成空体——那会把半截回答
+        // 翻译成 200 的空壳响应。两种失败都按上游失败返回 502，计量照做
+        //（usage 缺省：半截响应没有可信用量）。
+        let collected =
+            tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, upstream_response.bytes()).await;
+        let body_bytes = match collected {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(err)) => {
+                return upstream_body_failure(
+                    inbound,
+                    meter,
+                    status,
+                    &format!("upstream read failed: {err}"),
+                )
+                .await;
+            }
+            Err(_) => {
+                return upstream_body_failure(inbound, meter, status, "upstream body timeout")
+                    .await;
+            }
+        };
         let parsed: Value = serde_json::from_slice(&body_bytes).unwrap_or(Value::Null);
         let usage = translate::extract_usage_json(upstream_protocol, &parsed);
         let response_body = if translating {
