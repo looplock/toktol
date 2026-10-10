@@ -186,8 +186,9 @@ export function UserTurnBubble({
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<BubbleViewMode>(initialMode);
   // 元素级折叠：路径 → 是否收起。默认全折叠，覆盖项记用户动过的元素。
+  // 展开 undefined 合法（得到 {}），不需要 ?? 兜底。
   const [foldOverride, setFoldOverride] = useState<Record<string, boolean>>(
-    () => ({ ...(initialFoldOverrides ?? {}) }),
+    () => ({ ...initialFoldOverrides }),
   );
   const toggleFold = (path: string, next: boolean) =>
     setFoldOverride((prev) => ({ ...prev, [path]: next }));

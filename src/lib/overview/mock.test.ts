@@ -224,8 +224,8 @@ describe("buildMockDashboard", () => {
       expect(
         daily.every((point) => /^\d{4}-\d{2}-\d{2}$/.test(point.date)),
       ).toBe(true);
-      expect([...daily.map((point) => point.date)]).toEqual(
-        [...daily.map((point) => point.date)].sort(),
+      expect(daily.map((point) => point.date)).toEqual(
+        daily.map((point) => point.date).sort(),
       );
     }
   });

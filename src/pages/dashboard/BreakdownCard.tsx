@@ -57,7 +57,8 @@ export function BreakdownCard({
   const numberUnit = useNumberUnit();
 
   // 当前指标下全 0 即空：条形/树图用条形图标，环形占比用圆环图标。
-  const empty = rows.length === 0 || rows.every((row) => value(row, config.metric) === 0);
+  // every 对空数组返回 true，length 检查是多余的。
+  const empty = rows.every((row) => value(row, config.metric) === 0);
   const emptyKind = config.chart === "share" ? "donut" : "bars";
 
   const option = useMemo(() => {

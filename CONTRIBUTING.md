@@ -39,9 +39,10 @@ pnpm test                   # vitest
 cargo test --workspace      # 三个 crate 的 Rust 测试
 ```
 
-`pnpm check` 里七个校验脚本按"快 → 慢"排在最前面：`verify:deps`（硬门禁，声明
+`pnpm check` 里八个校验脚本按"快 → 慢"排在最前面：`verify:deps`（硬门禁，声明
 了却没用的依赖直接判失败）、`verify:constants`、`verify:api`、`verify:theme-tokens`、
-`verify:style`、`verify:i18n`、`verify:version`，几秒钟就能拦住声明层面的漂移，不必等编译。
+`verify:style`、`verify:i18n`、`verify:lint`（oxlint，警告即失败）、`verify:version`，
+几秒钟就能拦住声明层面的漂移，不必等编译。
 
 **i18n 铁律**：界面文案只许住 `src/i18n/strings.ts`。`verify:i18n` 用 AST 扫全部
 字符串/模板字面量与 JSX 文本里的 CJK（注释不算）；确有正当理由的中文（如语言
